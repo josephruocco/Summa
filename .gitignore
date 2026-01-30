@@ -1,0 +1,30 @@
+# ---- macOS ----
+.DS_Store
+
+# ---- Xcode / Swift ----
+DerivedData/
+.build/
+*.xcuserdata/
+*.xcuserstate
+*.xcbkptlist
+
+# Workspace user data
+*.xcworkspace/xcuserdata/
+
+# SwiftPM
+.swiftpm/
+Package.resolved
+
+# Build products
+build/
+*.ipa
+*.dSYM
+*.dSYM.zip
+
+# Playgrounds
+timeline.xctimeline
+playground.xcworkspace
+
+# Caches
+*.moved-aside
+*.swp

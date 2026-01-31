@@ -119,15 +119,18 @@ final class OverlayController {
         let text = h.text
         let kind = h.kind
 
-        let result: String = await Task.detached(priority: .userInitiated) {
-            if kind == .vocab {
-                return Lookups.definition(for: text) ?? "No dictionary entry found."
-            } else {
-                return "Reference: \(text)"
-            }
-        }.value
+        var result: String = ""
 
-        // don’t overwrite if hover changed
+        if kind == .vocab {
+            result = Lookups.definition(for: text) ?? "No dictionary entry found."
+        } else {
+            // if Wikipedia.summary returns String
+            result = await Wikipedia.summary(text)
+
+            // if your Wikipedia.summary returns String? instead, use:
+            // result = (await Wikipedia.summary(text)) ?? "No Wikipedia summary found."
+        }
+
         guard hovered?.id == h.id else { return }
         render(hovered: h, tooltip: result)
     }

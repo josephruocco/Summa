@@ -10,6 +10,8 @@
 		D9011FF52F2D66E1000B8600 /* OverlayState.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9011FF42F2D66E1000B8600 /* OverlayState.swift */; };
 		D9011FF92F2D6810000B8600 /* LookupCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9011FF82F2D6810000B8600 /* LookupCache.swift */; };
 		D9011FFB2F2D6823000B8600 /* Wikipedia.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9011FFA2F2D6823000B8600 /* Wikipedia.swift */; };
+		D9CCFEE32F300A1200031E62 /* CommonWords.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9CCFEE22F300A1200031E62 /* CommonWords.swift */; };
+		D9CCFEE92F300E1000031E62 /* common_words_en_20k.txt in Resources */ = {isa = PBXBuildFile; fileRef = D9CCFEE82F300E1000031E62 /* common_words_en_20k.txt */; };
 		D9F347022F2D4146001946B2 /* ScreenGlossMVPApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9F347012F2D413B001946B2 /* ScreenGlossMVPApp.swift */; };
 		D9F347042F2D416A001946B2 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9F347032F2D416A001946B2 /* ContentView.swift */; };
 		D9F347062F2D4172001946B2 /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9F347052F2D4172001946B2 /* AppModel.swift */; };
@@ -27,6 +29,8 @@
 		D9011FF42F2D66E1000B8600 /* OverlayState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OverlayState.swift; sourceTree = "<group>"; };
 		D9011FF82F2D6810000B8600 /* LookupCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LookupCache.swift; sourceTree = "<group>"; };
 		D9011FFA2F2D6823000B8600 /* Wikipedia.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Wikipedia.swift; sourceTree = "<group>"; };
+		D9CCFEE22F300A1200031E62 /* CommonWords.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommonWords.swift; sourceTree = "<group>"; };
+		D9CCFEE82F300E1000031E62 /* common_words_en_20k.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = common_words_en_20k.txt; sourceTree = "<group>"; };
 		D9F346F32F2D40F2001946B2 /* ScreenGlossMVP.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ScreenGlossMVP.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		D9F347012F2D413B001946B2 /* ScreenGlossMVPApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenGlossMVPApp.swift; sourceTree = "<group>"; };
 		D9F347032F2D416A001946B2 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
@@ -84,6 +88,7 @@
 				D9F347072F2D417B001946B2 /* CaptureSession.swift */,
 				D9F347092F2D4181001946B2 /* OCR.swift */,
 				D9F3470B2F2D4189001946B2 /* HighlightEngine.swift */,
+				D9CCFEE22F300A1200031E62 /* CommonWords.swift */,
 				D9F3470D2F2D418F001946B2 /* ChangeGate.swift */,
 				D9F3470F2F2D4197001946B2 /* Lookups.swift */,
 				D9F347132F2D41B1001946B2 /* WindowBounds.swift */,
@@ -92,6 +97,7 @@
 				D9F347172F2D41CA001946B2 /* OverlayView.swift */,
 				D9011FF82F2D6810000B8600 /* LookupCache.swift */,
 				D9011FFA2F2D6823000B8600 /* Wikipedia.swift */,
+				D9CCFEE82F300E1000031E62 /* common_words_en_20k.txt */,
 			);
 			sourceTree = "<group>";
 		};
@@ -168,6 +174,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				D9CCFEE92F300E1000031E62 /* common_words_en_20k.txt in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -187,6 +194,7 @@
 				D9F347182F2D41CA001946B2 /* OverlayView.swift in Sources */,
 				D9011FF92F2D6810000B8600 /* LookupCache.swift in Sources */,
 				D9F347082F2D417B001946B2 /* CaptureSession.swift in Sources */,
+				D9CCFEE32F300A1200031E62 /* CommonWords.swift in Sources */,
 				D9F347102F2D4197001946B2 /* Lookups.swift in Sources */,
 				D9F347162F2D41C3001946B2 /* OverlayController.swift in Sources */,
 				D9F3470E2F2D418F001946B2 /* ChangeGate.swift in Sources */,

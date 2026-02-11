@@ -15,9 +15,19 @@ final class AppModel: ObservableObject {
 
     @Published var lastHighlightCounts: (vocab: Int, ref: Int) = (0, 0)
 
+    // True while the user is actively scrolling (debounced)
+    @Published var highlightsSuppressed: Bool = false
+
     private let capture = CaptureSession()
     private let engine = HighlightEngine()
     private var overlay: OverlayController?
+
+    // Scroll suppression
+    private var scrollMonitor: ScrollActivityMonitor?
+
+    // Cache last computed highlights so we can restore instantly after scroll ends
+    private var cachedVocab: [HighlightBox] = []
+    private var cachedRefs: [HighlightBox] = []
 
     func windowLabel(_ w: SCWindow) -> String {
         let app = w.owningApplication?.applicationName ?? "UnknownApp"
@@ -50,6 +60,9 @@ final class AppModel: ObservableObject {
             overlay = OverlayController()
         }
 
+        // Start scroll suppression once per session
+        startScrollSuppressionIfNeeded()
+
         status = "Starting capture… (you may be prompted for Screen Recording permission)"
         do {
             try await capture.startCapturing(window: win) { [weak self] frame in
@@ -67,9 +80,49 @@ final class AppModel: ObservableObject {
 
     func stopSession() {
         capture.stop()
+        stopScrollSuppression()
+
+        cachedVocab = []
+        cachedRefs = []
+        highlightsSuppressed = false
+
         overlay?.clear()
         status = "Stopped."
     }
+
+    // MARK: - Scroll suppression
+
+    private func startScrollSuppressionIfNeeded() {
+        guard scrollMonitor == nil else { return }
+
+        scrollMonitor = ScrollActivityMonitor(quietPeriod: 0.20) { [weak self] isScrolling in
+            guard let self else { return }
+            Task { @MainActor in
+                self.highlightsSuppressed = isScrolling
+
+                if isScrolling {
+                    // Hide everything immediately while scrolling
+                    // (also cancels any in-flight tooltip tasks via clear())
+                    self.overlay?.clear()
+                } else {
+                    // Restore last-known highlights instantly after scrolling stops
+                    self.overlay?.setHighlights(
+                        vocab: self.showVocab ? self.cachedVocab : [],
+                        refs:  self.showRefs  ? self.cachedRefs  : []
+                    )
+                }
+            }
+        }
+
+        scrollMonitor?.start()
+    }
+
+    private func stopScrollSuppression() {
+        scrollMonitor?.stop()
+        scrollMonitor = nil
+    }
+
+    // MARK: - Frame handling
 
     private func handleFrame(_ frame: CapturedFrame, windowID: UInt32) async {
         // Update overlay frame to track window bounds
@@ -90,9 +143,18 @@ final class AppModel: ObservableObject {
             showRefs: showRefs
         )
 
+        // Cache latest highlights (for post-scroll restore)
+        cachedVocab = result.vocab
+        cachedRefs = result.refs
         lastHighlightCounts = (result.vocab.count, result.refs.count)
-        overlay?.setHighlights(vocab: result.vocab, refs: result.refs)
 
+        // If user is scrolling, don't render now — we'll restore from cache on scroll end
+        if highlightsSuppressed {
+            status = "Session running. (Scrolling…)"
+            return
+        }
+
+        overlay?.setHighlights(vocab: result.vocab, refs: result.refs)
         status = "Session running. (Hover highlights for info.)"
     }
 }

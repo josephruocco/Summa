@@ -6,6 +6,13 @@ struct OverlayView: View {
     let hovered: HighlightBox?
     let tooltip: String?
 
+    private let palette: [Color] = [
+        Color(red: 0.55, green: 0.85, blue: 0.87), // teal
+        Color(red: 0.98, green: 0.90, blue: 0.45), // yellow
+        Color(red: 0.98, green: 0.55, blue: 0.55), // red
+        Color(red: 0.55, green: 0.90, blue: 0.55)  // green
+    ]
+
     var body: some View {
         GeometryReader { geo in
             let size = geo.size
@@ -13,15 +20,19 @@ struct OverlayView: View {
             ZStack(alignment: .topLeading) {
 
                 ForEach(vocab) { h in
+                    let c = color(for: h.text)
                     Rectangle()
-                        .fill(Color.green.opacity(0.22))
+                        .fill(c.opacity(0.18))
+                        .overlay(Rectangle().stroke(c.opacity(0.95), lineWidth: 2))
                         .frame(width: h.rect.width, height: h.rect.height)
                         .position(x: h.rect.midX, y: h.rect.midY)
                 }
 
                 ForEach(refs) { h in
+                    let c = color(for: h.text)
                     Rectangle()
-                        .fill(Color.blue.opacity(0.20))
+                        .fill(c.opacity(0.18))
+                        .overlay(Rectangle().stroke(c.opacity(0.95), lineWidth: 2))
                         .frame(width: h.rect.width, height: h.rect.height)
                         .position(x: h.rect.midX, y: h.rect.midY)
                 }
@@ -51,8 +62,29 @@ struct OverlayView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Color.clear)
-            .allowsHitTesting(false) // overlay stays pass-through
+            .allowsHitTesting(false)
         }
+    }
+
+    private func color(for term: String) -> Color {
+        // normalize so "Egyptians," and "Egyptians" map the same
+        let normalized = term
+            .lowercased()
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: CharacterSet(charactersIn: ".,;:!?()[]{}\"'“”‘’"))
+
+        let idx = stableIndex(normalized, mod: palette.count)
+        return palette[idx]
+    }
+
+    private func stableIndex(_ s: String, mod: Int) -> Int {
+        // deterministic across runs (unlike Swift's Hasher)
+        var hash: UInt64 = 1469598103934665603 // FNV-1a offset basis
+        for b in s.utf8 {
+            hash ^= UInt64(b)
+            hash &*= 1099511628211 // FNV prime
+        }
+        return Int(hash % UInt64(mod))
     }
 
     private func clamp(_ v: CGFloat, min: CGFloat, max: CGFloat) -> CGFloat {

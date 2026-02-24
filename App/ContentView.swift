@@ -6,6 +6,7 @@ struct ContentView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
+
             HStack {
                 Button("Refresh Windows") {
                     Task { await model.refreshWindows() }
@@ -27,6 +28,11 @@ struct ContentView: View {
                             model.stopSession()
                         }
                     }
+
+                Button("Export Catalog") {
+                    Task { await model.exportCatalog() }
+                }
+                .disabled(!model.sessionOn)
             }
 
             HStack(spacing: 18) {
@@ -51,8 +57,6 @@ struct ContentView: View {
             Spacer()
         }
         .padding(16)
-        .task {
-            await model.refreshWindows()
-        }
+        .task { await model.refreshWindows() }
     }
 }

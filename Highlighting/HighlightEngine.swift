@@ -1,20 +1,25 @@
 import Foundation
 import CoreGraphics
 
-// MARK: - HighlightBox
 
-struct HighlightBox: Identifiable, Hashable {
-    enum Kind: Hashable {
+struct HighlightBox: Identifiable, Hashable, Sendable {
+    enum Kind: Hashable, Sendable {
         case vocab
         case reference
     }
 
-    let id = UUID()
+    let id: UUID
     let text: String
-    let rect: CGRect          // overlay-local coords (top-left origin assumed by your drawing)
+    let rect: CGRect
     let kind: Kind
-}
 
+    init(text: String, rect: CGRect, kind: Kind) {
+        self.id = UUID()
+        self.text = text
+        self.rect = rect
+        self.kind = kind
+    }
+}
 final class HighlightEngine {
 
     let changeGate = ChangeGate()

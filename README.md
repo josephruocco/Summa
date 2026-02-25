@@ -1,6 +1,8 @@
 # SUMMA
 
-![SUMMA Logo](./assets/summa-logo.png)
+<p align="center">
+  <img src="./assets/summa-logo.png" width="420" alt="SUMMA" />
+</p>
 
 **SUMMA** is a reading-augmentation tool that highlights text in real time and surfaces
 **Wikipedia context** and **dictionary definitions** directly alongside what you’re reading.

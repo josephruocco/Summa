@@ -87,10 +87,7 @@ final class OverlayController {
         let localY = mouse.y - winFrame.origin.y
         let local = CGPoint(x: localX, y: localY)
 
-        // IMPORTANT:
-        // Our HighlightBox.rect is TOP-left origin (SwiftUI coords),
-        // but local is BOTTOM-left origin.
-        // Convert local -> SwiftUI y by flipping:
+        // HighlightBox.rect is TOP-left origin (SwiftUI coords).
         let overlayH = currentSize.height
         let localSwiftUI = CGPoint(x: local.x, y: overlayH - local.y)
 
@@ -114,28 +111,59 @@ final class OverlayController {
     }
 
     private func showToolTip(for h: HighlightBox) async {
-        render(hovered: h, tooltip: "Loading…")
+        render(hovered: h, tooltip: .loading)
 
         let text = h.text
         let kind = h.kind
 
-        var result: String = ""
-
         if kind == .vocab {
-            result = Lookups.definition(for: text) ?? "No dictionary entry found."
-        } else {
-            // if Wikipedia.summary returns String
-            result = await Wikipedia.summary(text)
+            let key = normalizeKey(text)
+            if let cached = LookupCache.shared.dictionary(key) {
+                guard hovered?.id == h.id else { return }
+                render(hovered: h, tooltip: .dictionary(term: text, definition: cached))
+                return
+            }
 
-            // if your Wikipedia.summary returns String? instead, use:
-            // result = (await Wikipedia.summary(text)) ?? "No Wikipedia summary found."
+            let def = Lookups.definition(for: text) ?? "No dictionary entry found."
+            LookupCache.shared.setDictionary(key, def)
+
+            guard hovered?.id == h.id else { return }
+            render(hovered: h, tooltip: .dictionary(term: text, definition: def))
+            return
         }
 
+        // Reference → Wikipedia
+        let key = normalizeKey(text)
+
+        if let cached = LookupCache.shared.wikipedia(key) {
+            guard hovered?.id == h.id else { return }
+            render(hovered: h, tooltip: .wiki(cached))
+            return
+        }
+
+        // If you later want better disambiguation, pass real context here.
+        let wiki = await Wikipedia.lookup(text, contextBefore: nil, contextAfter: nil)
+        LookupCache.shared.setWikipedia(key, wiki)
+
         guard hovered?.id == h.id else { return }
-        render(hovered: h, tooltip: result)
+        render(hovered: h, tooltip: .wiki(wiki))
     }
 
-    private func render(hovered: HighlightBox?, tooltip: String?) {
+    private func render(hovered: HighlightBox?, tooltip: OverlayTooltip?) {
         host.rootView = OverlayView(vocab: vocab, refs: refs, hovered: hovered, tooltip: tooltip)
     }
+
+    private func normalizeKey(_ s: String) -> String {
+        s.lowercased()
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: CharacterSet(charactersIn: ".,;:!?()[]{}\"'“”‘’"))
+    }
+}
+
+// MARK: - Tooltip model for the SwiftUI view
+
+enum OverlayTooltip: Equatable {
+    case loading
+    case dictionary(term: String, definition: String)
+    case wiki(WikiResult)
 }

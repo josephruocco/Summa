@@ -10,6 +10,10 @@
 		D9011FF52F2D66E1000B8600 /* OverlayState.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9011FF42F2D66E1000B8600 /* OverlayState.swift */; };
 		D9011FF92F2D6810000B8600 /* LookupCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9011FF82F2D6810000B8600 /* LookupCache.swift */; };
 		D9011FFB2F2D6823000B8600 /* Wikipedia.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9011FFA2F2D6823000B8600 /* Wikipedia.swift */; };
+		D919C0492F4E543000853E78 /* CatalogRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = D919C0482F4E543000853E78 /* CatalogRecorder.swift */; };
+		D919C04B2F4E5A2D00853E78 /* Geometry.swift in Sources */ = {isa = PBXBuildFile; fileRef = D919C04A2F4E5A2D00853E78 /* Geometry.swift */; };
+		D97D81C32F3C15B200933D15 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = D97D81C12F3C15B200933D15 /* Assets.xcassets */; };
+		D97D81CD2F3C21B600933D15 /* ScrollActivityMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = D97D81CC2F3C21AC00933D15 /* ScrollActivityMonitor.swift */; };
 		D9CCFEE32F300A1200031E62 /* CommonWords.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9CCFEE22F300A1200031E62 /* CommonWords.swift */; };
 		D9CCFEE92F300E1000031E62 /* common_words_en_20k.txt in Resources */ = {isa = PBXBuildFile; fileRef = D9CCFEE82F300E1000031E62 /* common_words_en_20k.txt */; };
 		D9F347022F2D4146001946B2 /* ScreenGlossMVPApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9F347012F2D413B001946B2 /* ScreenGlossMVPApp.swift */; };
@@ -29,6 +33,11 @@
 		D9011FF42F2D66E1000B8600 /* OverlayState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OverlayState.swift; sourceTree = "<group>"; };
 		D9011FF82F2D6810000B8600 /* LookupCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LookupCache.swift; sourceTree = "<group>"; };
 		D9011FFA2F2D6823000B8600 /* Wikipedia.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Wikipedia.swift; sourceTree = "<group>"; };
+		D919C0482F4E543000853E78 /* CatalogRecorder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CatalogRecorder.swift; sourceTree = "<group>"; };
+		D919C04A2F4E5A2D00853E78 /* Geometry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Geometry.swift; sourceTree = "<group>"; };
+		D97D81C12F3C15B200933D15 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		D97D81C22F3C15B200933D15 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		D97D81CC2F3C21AC00933D15 /* ScrollActivityMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScrollActivityMonitor.swift; sourceTree = "<group>"; };
 		D9CCFEE22F300A1200031E62 /* CommonWords.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommonWords.swift; sourceTree = "<group>"; };
 		D9CCFEE82F300E1000031E62 /* common_words_en_20k.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = common_words_en_20k.txt; sourceTree = "<group>"; };
 		D9F346F32F2D40F2001946B2 /* ScreenGlossMVP.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ScreenGlossMVP.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -45,22 +54,9 @@
 		D9F347172F2D41CA001946B2 /* OverlayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OverlayView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
-/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		D9F3471A2F2D435A001946B2 /* Exceptions for "ScreenGlossMVP" folder in "ScreenGlossMVP" target */ = {
-			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
-			membershipExceptions = (
-				Info.plist,
-			);
-			target = D9F346F22F2D40F2001946B2 /* ScreenGlossMVP */;
-		};
-/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
-
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		D9F346F52F2D40F2001946B2 /* ScreenGlossMVP */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-				D9F3471A2F2D435A001946B2 /* Exceptions for "ScreenGlossMVP" folder in "ScreenGlossMVP" target */,
-			);
 			path = ScreenGlossMVP;
 			sourceTree = "<group>";
 		};
@@ -77,27 +73,88 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
-		D9F346EA2F2D40F2001946B2 = {
+		D97D81C52F3C1F3700933D15 /* App */ = {
 			isa = PBXGroup;
 			children = (
-				D9F346F52F2D40F2001946B2 /* ScreenGlossMVP */,
-				D9F346F42F2D40F2001946B2 /* Products */,
-				D9F347012F2D413B001946B2 /* ScreenGlossMVPApp.swift */,
-				D9F347032F2D416A001946B2 /* ContentView.swift */,
 				D9F347052F2D4172001946B2 /* AppModel.swift */,
-				D9F347072F2D417B001946B2 /* CaptureSession.swift */,
-				D9F347092F2D4181001946B2 /* OCR.swift */,
-				D9F3470B2F2D4189001946B2 /* HighlightEngine.swift */,
-				D9CCFEE22F300A1200031E62 /* CommonWords.swift */,
-				D9F3470D2F2D418F001946B2 /* ChangeGate.swift */,
-				D9F3470F2F2D4197001946B2 /* Lookups.swift */,
+				D9F347032F2D416A001946B2 /* ContentView.swift */,
+				D9F347012F2D413B001946B2 /* ScreenGlossMVPApp.swift */,
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
+		D97D81C62F3C1F5100933D15 /* Overlay */ = {
+			isa = PBXGroup;
+			children = (
 				D9F347132F2D41B1001946B2 /* WindowBounds.swift */,
 				D9F347152F2D41C3001946B2 /* OverlayController.swift */,
 				D9011FF42F2D66E1000B8600 /* OverlayState.swift */,
 				D9F347172F2D41CA001946B2 /* OverlayView.swift */,
+			);
+			path = Overlay;
+			sourceTree = "<group>";
+		};
+		D97D81C72F3C1F7C00933D15 /* Highlighting */ = {
+			isa = PBXGroup;
+			children = (
+				D9F3470B2F2D4189001946B2 /* HighlightEngine.swift */,
+				D9CCFEE22F300A1200031E62 /* CommonWords.swift */,
+				D9F3470D2F2D418F001946B2 /* ChangeGate.swift */,
+			);
+			path = Highlighting;
+			sourceTree = "<group>";
+		};
+		D97D81C82F3C1F8700933D15 /* Lookups */ = {
+			isa = PBXGroup;
+			children = (
+				D9F3470F2F2D4197001946B2 /* Lookups.swift */,
 				D9011FF82F2D6810000B8600 /* LookupCache.swift */,
 				D9011FFA2F2D6823000B8600 /* Wikipedia.swift */,
+			);
+			path = Lookups;
+			sourceTree = "<group>";
+		};
+		D97D81C92F3C1F9D00933D15 /* Models */ = {
+			isa = PBXGroup;
+			children = (
+				D9F347072F2D417B001946B2 /* CaptureSession.swift */,
+			);
+			path = Models;
+			sourceTree = "<group>";
+		};
+		D97D81CA2F3C1FB000933D15 /* Utilities */ = {
+			isa = PBXGroup;
+			children = (
+				D97D81CC2F3C21AC00933D15 /* ScrollActivityMonitor.swift */,
+				D9F347092F2D4181001946B2 /* OCR.swift */,
+			);
+			path = Utilities;
+			sourceTree = "<group>";
+		};
+		D97D81CB2F3C1FBE00933D15 /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				D97D81C12F3C15B200933D15 /* Assets.xcassets */,
+				D97D81C22F3C15B200933D15 /* Info.plist */,
 				D9CCFEE82F300E1000031E62 /* common_words_en_20k.txt */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+		D9F346EA2F2D40F2001946B2 = {
+			isa = PBXGroup;
+			children = (
+				D919C04A2F4E5A2D00853E78 /* Geometry.swift */,
+				D919C0482F4E543000853E78 /* CatalogRecorder.swift */,
+				D97D81C62F3C1F5100933D15 /* Overlay */,
+				D97D81C52F3C1F3700933D15 /* App */,
+				D9F346F52F2D40F2001946B2 /* ScreenGlossMVP */,
+				D9F346F42F2D40F2001946B2 /* Products */,
+				D97D81C92F3C1F9D00933D15 /* Models */,
+				D97D81CA2F3C1FB000933D15 /* Utilities */,
+				D97D81C72F3C1F7C00933D15 /* Highlighting */,
+				D97D81C82F3C1F8700933D15 /* Lookups */,
+				D97D81CB2F3C1FBE00933D15 /* Resources */,
 			);
 			sourceTree = "<group>";
 		};
@@ -174,6 +231,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				D97D81C32F3C15B200933D15 /* Assets.xcassets in Resources */,
 				D9CCFEE92F300E1000031E62 /* common_words_en_20k.txt in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -190,11 +248,14 @@
 				D9F347042F2D416A001946B2 /* ContentView.swift in Sources */,
 				D9F347062F2D4172001946B2 /* AppModel.swift in Sources */,
 				D9F347022F2D4146001946B2 /* ScreenGlossMVPApp.swift in Sources */,
+				D919C0492F4E543000853E78 /* CatalogRecorder.swift in Sources */,
 				D9011FF52F2D66E1000B8600 /* OverlayState.swift in Sources */,
+				D919C04B2F4E5A2D00853E78 /* Geometry.swift in Sources */,
 				D9F347182F2D41CA001946B2 /* OverlayView.swift in Sources */,
 				D9011FF92F2D6810000B8600 /* LookupCache.swift in Sources */,
 				D9F347082F2D417B001946B2 /* CaptureSession.swift in Sources */,
 				D9CCFEE32F300A1200031E62 /* CommonWords.swift in Sources */,
+				D97D81CD2F3C21B600933D15 /* ScrollActivityMonitor.swift in Sources */,
 				D9F347102F2D4197001946B2 /* Lookups.swift in Sources */,
 				D9F347162F2D41C3001946B2 /* OverlayController.swift in Sources */,
 				D9F3470E2F2D418F001946B2 /* ChangeGate.swift in Sources */,
@@ -327,7 +388,6 @@
 		D9F346FF2F2D40F4001946B2 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_STYLE = Automatic;
@@ -347,7 +407,7 @@
 				ENABLE_RESOURCE_ACCESS_USB = NO;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = ScreenGlossMVP/Info.plist;
+				INFOPLIST_FILE = Resources/Info.plist;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -370,7 +430,6 @@
 		D9F347002F2D40F4001946B2 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_STYLE = Automatic;
@@ -390,7 +449,7 @@
 				ENABLE_RESOURCE_ACCESS_USB = NO;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = ScreenGlossMVP/Info.plist;
+				INFOPLIST_FILE = Resources/Info.plist;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",

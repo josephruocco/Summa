@@ -104,6 +104,15 @@ struct ContentView: View {
             }
             .buttonStyle(.bordered)
 
+            Button {
+                Task { await model.exportCatalog() }
+            } label: {
+                Label("Export Reading Catalog", systemImage: "square.and.arrow.up")
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .buttonStyle(.bordered)
+            .disabled(!model.sessionOn)
+
             Button(role: .none) {
                 NSApp.terminate(nil)
             } label: {

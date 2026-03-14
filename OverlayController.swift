@@ -30,7 +30,7 @@ final class OverlayController {
         window.isOpaque = false
         window.backgroundColor = .clear
         window.hasShadow = false
-        window.ignoresMouseEvents = true // pass-through
+        window.ignoresMouseEvents = true
         window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
 
         window.contentView = host
@@ -69,7 +69,7 @@ final class OverlayController {
     }
 
     private func pollHover() {
-        let mouse = NSEvent.mouseLocation // global screen coords, origin bottom-left
+        let mouse = NSEvent.mouseLocation
         let winFrame = window.frame
 
         guard winFrame.contains(mouse) else {
@@ -82,15 +82,9 @@ final class OverlayController {
             return
         }
 
-        // Convert to overlay-local coordinates (BOTTOM-left origin for hit test)
         let localX = mouse.x - winFrame.origin.x
         let localY = mouse.y - winFrame.origin.y
         let local = CGPoint(x: localX, y: localY)
-
-        // IMPORTANT:
-        // Our HighlightBox.rect is TOP-left origin (SwiftUI coords),
-        // but local is BOTTOM-left origin.
-        // Convert local -> SwiftUI y by flipping:
         let overlayH = currentSize.height
         let localSwiftUI = CGPoint(x: local.x, y: overlayH - local.y)
 
@@ -103,39 +97,62 @@ final class OverlayController {
                     await self.showToolTip(for: hit)
                 }
             }
-        } else {
-            if hovered != nil {
-                hovered = nil
-                hoverTask?.cancel()
-                hoverTask = nil
-                render(hovered: nil, tooltip: nil)
-            }
+        } else if hovered != nil {
+            hovered = nil
+            hoverTask?.cancel()
+            hoverTask = nil
+            render(hovered: nil, tooltip: nil)
         }
     }
 
     private func showToolTip(for h: HighlightBox) async {
-        render(hovered: h, tooltip: "Loading…")
+        render(hovered: h, tooltip: .loading)
 
         let text = h.text
-        let kind = h.kind
 
-        var result: String = ""
+        if h.kind == .vocab {
+            let key = normalizeKey(text)
+            if let cached = LookupCache.shared.dictionary(key) {
+                guard hovered?.id == h.id else { return }
+                render(hovered: h, tooltip: .dictionary(term: text, definition: cached))
+                return
+            }
 
-        if kind == .vocab {
-            result = Lookups.definition(for: text) ?? "No dictionary entry found."
-        } else {
-            // if Wikipedia.summary returns String
-            result = await Wikipedia.summary(text)
+            let def = Lookups.definition(for: text) ?? "No dictionary entry found."
+            LookupCache.shared.setDictionary(key, def)
 
-            // if your Wikipedia.summary returns String? instead, use:
-            // result = (await Wikipedia.summary(text)) ?? "No Wikipedia summary found."
+            guard hovered?.id == h.id else { return }
+            render(hovered: h, tooltip: .dictionary(term: text, definition: def))
+            return
         }
 
+        let key = normalizeKey(text)
+        if let cached = LookupCache.shared.wikipedia(key) {
+            guard hovered?.id == h.id else { return }
+            render(hovered: h, tooltip: .wiki(cached))
+            return
+        }
+
+        let wiki = await Wikipedia.lookup(text, contextBefore: nil, contextAfter: nil)
+        LookupCache.shared.setWikipedia(key, wiki)
+
         guard hovered?.id == h.id else { return }
-        render(hovered: h, tooltip: result)
+        render(hovered: h, tooltip: .wiki(wiki))
     }
 
-    private func render(hovered: HighlightBox?, tooltip: String?) {
+    private func render(hovered: HighlightBox?, tooltip: OverlayTooltip?) {
         host.rootView = OverlayView(vocab: vocab, refs: refs, hovered: hovered, tooltip: tooltip)
     }
+
+    private func normalizeKey(_ s: String) -> String {
+        s.lowercased()
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: CharacterSet(charactersIn: ".,;:!?()[]{}\"'“”‘’"))
+    }
+}
+
+enum OverlayTooltip: Equatable {
+    case loading
+    case dictionary(term: String, definition: String)
+    case wiki(WikiResult)
 }

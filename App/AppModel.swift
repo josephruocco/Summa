@@ -126,15 +126,15 @@ final class AppModel: ObservableObject {
 
     func exportCatalog() async {
         do {
-            let data = try await recorder.exportJSON(pretty: true)
+            let data = try await recorder.exportDemoJSON(pretty: true)
             let downloadsURL = try FileManager.default
                 .url(for: .downloadsDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
             let timestamp = ISO8601DateFormatter().string(from: Date())
                 .replacingOccurrences(of: ":", with: "-")
-            let url = downloadsURL.appendingPathComponent("summa_catalog_\(timestamp).json")
+            let url = downloadsURL.appendingPathComponent("summa_demo_catalog_\(timestamp).json")
 
             try data.write(to: url, options: [.atomic])
-            status = "Exported to Downloads: \(url.lastPathComponent)"
+            status = "Exported demo catalog: \(url.lastPathComponent)"
             NSWorkspace.shared.activateFileViewerSelecting([url])
         } catch {
             status = "Export failed: \(error.localizedDescription)"

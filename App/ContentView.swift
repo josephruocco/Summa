@@ -107,7 +107,7 @@ struct ContentView: View {
             Button {
                 Task { await model.exportCatalog() }
             } label: {
-                Label("Export Reading Catalog", systemImage: "square.and.arrow.up")
+                Label("Export Demo Catalog", systemImage: "square.and.arrow.up")
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
             .buttonStyle(.bordered)

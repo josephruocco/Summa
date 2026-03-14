@@ -15,8 +15,6 @@ enum WindowBounds {
             let h = boundsDict["Height"] as? CGFloat
         else { return nil }
 
-        // Quartz window bounds commonly use a top-left origin;
-        // Cocoa expects bottom-left. Flip using the screen height.
         guard let screen = NSScreen.main else {
             return CGRect(x: x, y: y, width: w, height: h)
         }
@@ -24,5 +22,41 @@ enum WindowBounds {
         let screenH = screen.frame.height
         let cocoaY = screenH - y - h
         return CGRect(x: x, y: cocoaY, width: w, height: h)
+    }
+
+    static func frontmostWindowID(excludingPID: pid_t = ProcessInfo.processInfo.processIdentifier) -> UInt32? {
+        let frontmostPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
+
+        guard let infoList = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else {
+            return nil
+        }
+
+        for info in infoList {
+            guard let ownerPID = info[kCGWindowOwnerPID as String] as? pid_t,
+                  ownerPID != excludingPID else { continue }
+
+            if let frontmostPID, ownerPID != frontmostPID { continue }
+
+            let layer = info[kCGWindowLayer as String] as? Int ?? 0
+            guard layer == 0 else { continue }
+
+            let alpha = info[kCGWindowAlpha as String] as? Double ?? 1.0
+            guard alpha > 0 else { continue }
+
+            guard let bounds = info[kCGWindowBounds as String] as? [String: Any],
+                  let width = bounds["Width"] as? CGFloat,
+                  let height = bounds["Height"] as? CGFloat,
+                  width > 220,
+                  height > 140 else { continue }
+
+            if let id = info[kCGWindowNumber as String] as? UInt32 {
+                return id
+            }
+            if let id = info[kCGWindowNumber as String] as? NSNumber {
+                return id.uint32Value
+            }
+        }
+
+        return nil
     }
 }

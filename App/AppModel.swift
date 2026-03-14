@@ -2,7 +2,6 @@ import Foundation
 import ScreenCaptureKit
 import AppKit
 import Combine
-import UniformTypeIdentifiers
 
 @MainActor
 final class AppModel: ObservableObject {
@@ -128,17 +127,15 @@ final class AppModel: ObservableObject {
     func exportCatalog() async {
         do {
             let data = try await recorder.exportJSON(pretty: true)
-            let panel = NSSavePanel()
-            panel.nameFieldStringValue = "summa_catalog.json"
-            panel.allowedContentTypes = [UTType.json]
-            panel.canCreateDirectories = true
+            let downloadsURL = try FileManager.default
+                .url(for: .downloadsDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
+            let timestamp = ISO8601DateFormatter().string(from: Date())
+                .replacingOccurrences(of: ":", with: "-")
+            let url = downloadsURL.appendingPathComponent("summa_catalog_\(timestamp).json")
 
-            if panel.runModal() == .OK, let url = panel.url {
-                try data.write(to: url, options: [.atomic])
-                status = "Exported: \(url.lastPathComponent)"
-            } else {
-                status = "Export cancelled."
-            }
+            try data.write(to: url, options: [.atomic])
+            status = "Exported to Downloads: \(url.lastPathComponent)"
+            NSWorkspace.shared.activateFileViewerSelecting([url])
         } catch {
             status = "Export failed: \(error.localizedDescription)"
         }

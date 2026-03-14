@@ -3,8 +3,8 @@ import CoreGraphics
 
 // MARK: - HighlightBox
 
-struct HighlightBox: Identifiable, Hashable {
-    enum Kind: Hashable {
+struct HighlightBox: Identifiable, Hashable, Sendable {
+    enum Kind: Hashable, Sendable {
         case vocab
         case reference
     }
@@ -13,6 +13,13 @@ struct HighlightBox: Identifiable, Hashable {
     let text: String
     let rect: CGRect          // overlay-local coords (top-left origin assumed by your drawing)
     let kind: Kind
+
+    nonisolated var catalogKind: String {
+        switch kind {
+        case .vocab: return "v"
+        case .reference: return "r"
+        }
+    }
 }
 
 final class HighlightEngine {

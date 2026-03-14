@@ -71,7 +71,7 @@ actor CatalogRecorder {
         let id = makeID(kind: h.kind, text: h.text, rect: nrect)
         let idx = nearestTokenIndex(to: h.rect, tokenRects: tokenRects)
         let (before, after) = contextAround(index: idx, stream: tokenStrings, window: contextWindow)
-        let kind: Item.Kind = (h.kind == .vocab) ? .vocab : .reference
+        let kind: Item.Kind = (h.catalogKind == "v") ? .vocab : .reference
 
         if var existing = itemsByID[id] {
             existing.seenCount += 1
@@ -163,7 +163,10 @@ actor CatalogRecorder {
     }
 
     private func makeID(kind: HighlightBox.Kind, text: String, rect: NormRect) -> String {
-        let k = (kind == .vocab) ? "v" : "r"
+        let k = switch kind {
+        case .vocab: "v"
+        case .reference: "r"
+        }
         let t = text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         return "\(k)|\(t)|\(rect.x),\(rect.y),\(rect.w),\(rect.h)"
     }

@@ -1,7 +1,7 @@
 import CoreGraphics
 
 enum Geometry {
-    static func visionNormToOverlayTopLeft(_ r: CGRect, overlaySize: CGSize) -> CGRect {
+    nonisolated static func visionNormToOverlayTopLeft(_ r: CGRect, overlaySize: CGSize) -> CGRect {
         let x = r.origin.x * overlaySize.width
         let y = (1.0 - r.origin.y - r.size.height) * overlaySize.height
         let w = r.size.width * overlaySize.width

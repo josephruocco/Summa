@@ -1,58 +1,57 @@
 import SwiftUI
-import ScreenCaptureKit
+import AppKit
 
 struct ContentView: View {
     @EnvironmentObject var model: AppModel
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Button("Refresh Windows") {
-                    Task { await model.refreshWindows() }
-                }
+            Text("SUMMA")
+                .font(.headline)
 
-                Picker("Target Window", selection: $model.selectedWindowID) {
-                    Text("None").tag(UInt32?.none)
-                    ForEach(model.windows, id: \.windowID) { w in
-                        Text(model.windowLabel(w)).tag(Optional(w.windowID))
-                    }
-                }
-                .frame(minWidth: 520)
-
-                Toggle("Session", isOn: $model.sessionOn)
-                    .onChange(of: model.sessionOn) { _, on in
-                        if on {
-                            Task { await model.startSession() }
-                        } else {
-                            model.stopSession()
-                        }
-                    }
-            }
-
-            HStack(spacing: 18) {
-                VStack(alignment: .leading) {
-                    Text("Highlights")
-                        .font(.headline)
-                    Text("Vocab: \(model.lastHighlightCounts.vocab)   References: \(model.lastHighlightCounts.ref)")
-                        .font(.system(size: 12))
-                        .foregroundStyle(.secondary)
-                }
-                Spacer()
-                Toggle("Show Vocab", isOn: $model.showVocab)
-                Toggle("Show References", isOn: $model.showRefs)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(model.currentWindowLabel.isEmpty ? "Waiting for an active window…" : model.currentWindowLabel)
+                    .font(.system(size: 12, weight: .medium))
+                Text(model.status)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
             }
 
             Divider()
 
-            Text(model.status)
-                .font(.system(size: 12))
-                .foregroundStyle(.secondary)
+            Toggle("Session Running", isOn: $model.sessionOn)
+                .onChange(of: model.sessionOn) { _, on in
+                    if on {
+                        Task { await model.resumeAutomaticSession() }
+                    } else {
+                        model.stopSession()
+                    }
+                }
 
-            Spacer()
+            Toggle("Show Vocab", isOn: $model.showVocab)
+            Toggle("Show References", isOn: $model.showRefs)
+
+            Divider()
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Highlights")
+                    .font(.system(size: 12, weight: .semibold))
+                Text("Vocab: \(model.lastHighlightCounts.vocab)   References: \(model.lastHighlightCounts.ref)")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+            }
+
+            HStack {
+                Button("Retarget Current Window") {
+                    Task { await model.syncToFrontmostWindow(startIfNeeded: true) }
+                }
+
+                Button("Quit") {
+                    NSApp.terminate(nil)
+                }
+            }
         }
-        .padding(16)
-        .task {
-            await model.refreshWindows()
-        }
+        .padding(14)
+        .frame(minWidth: 320)
     }
 }

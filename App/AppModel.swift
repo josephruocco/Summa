@@ -7,6 +7,7 @@ import UniformTypeIdentifiers
 @MainActor
 final class AppModel: ObservableObject {
     static let shared = AppModel()
+    private static let exportFolderBookmarkKey = "summa.exportFolderBookmark"
 
     @Published var windows: [SCWindow] = []
     @Published var selectedWindowID: UInt32? = nil
@@ -18,6 +19,7 @@ final class AppModel: ObservableObject {
     @Published var showRefs: Bool = true
 
     @Published var lastHighlightCounts: (vocab: Int, ref: Int) = (0, 0)
+    @Published var hasExportFolder: Bool = false
 
     private let capture = CaptureSession()
     private let engine = HighlightEngine()
@@ -34,6 +36,7 @@ final class AppModel: ObservableObject {
 
     private init() {
         NSApp.setActivationPolicy(.accessory)
+        hasExportFolder = loadExportFolderURL() != nil
 
         activationObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didActivateApplicationNotification,
@@ -125,27 +128,49 @@ final class AppModel: ObservableObject {
         status = "Stopped."
     }
 
+    func chooseExportFolder() {
+        let panel = NSOpenPanel()
+        panel.title = "Choose Export Folder"
+        panel.message = "Pick a folder where SUMMA should save demo catalogs."
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.canCreateDirectories = true
+        panel.allowsMultipleSelection = false
+
+        NSApp.activate(ignoringOtherApps: true)
+        let response = panel.runModal()
+
+        guard response == .OK, let url = panel.url else {
+            status = "Export folder selection cancelled."
+            return
+        }
+
+        do {
+            try saveExportFolder(url)
+            hasExportFolder = true
+            status = "Export folder set: \(url.lastPathComponent)"
+            NSWorkspace.shared.activateFileViewerSelecting([url])
+        } catch {
+            status = "Couldn’t save export folder: \(error.localizedDescription)"
+        }
+    }
+
     func exportCatalog() async {
+        guard let folderURL = loadExportFolderURL() else {
+            status = "Choose an export folder first."
+            return
+        }
+
+        let accessStarted = folderURL.startAccessingSecurityScopedResource()
+        defer {
+            if accessStarted { folderURL.stopAccessingSecurityScopedResource() }
+        }
+
         do {
             let data = try await recorder.exportDemoJSON(pretty: true)
             let timestamp = ISO8601DateFormatter().string(from: Date())
                 .replacingOccurrences(of: ":", with: "-")
-
-            let panel = NSSavePanel()
-            panel.title = "Export Demo Catalog"
-            panel.message = "Choose where to save the demo catalog JSON file."
-            panel.nameFieldStringValue = "summa_demo_catalog_\(timestamp).json"
-            panel.allowedContentTypes = [UTType.json]
-            panel.canCreateDirectories = true
-            panel.isExtensionHidden = false
-
-            NSApp.activate(ignoringOtherApps: true)
-            let response = panel.runModal()
-
-            guard response == .OK, let url = panel.url else {
-                status = "Export cancelled."
-                return
-            }
+            let url = folderURL.appendingPathComponent("summa_demo_catalog_\(timestamp).json")
 
             try data.write(to: url, options: [.atomic])
             status = "Exported demo catalog: \(url.lastPathComponent)"
@@ -252,5 +277,38 @@ final class AppModel: ObservableObject {
         scrollMonitor?.stop()
         scrollMonitor = nil
         isScrolling = false
+    }
+
+    private func saveExportFolder(_ url: URL) throws {
+        let bookmark = try url.bookmarkData(
+            options: [.withSecurityScope],
+            includingResourceValuesForKeys: nil,
+            relativeTo: nil
+        )
+        UserDefaults.standard.set(bookmark, forKey: Self.exportFolderBookmarkKey)
+    }
+
+    private func loadExportFolderURL() -> URL? {
+        guard let data = UserDefaults.standard.data(forKey: Self.exportFolderBookmarkKey) else {
+            return nil
+        }
+
+        var isStale = false
+        do {
+            let url = try URL(
+                resolvingBookmarkData: data,
+                options: [.withSecurityScope],
+                relativeTo: nil,
+                bookmarkDataIsStale: &isStale
+            )
+
+            if isStale {
+                try saveExportFolder(url)
+            }
+
+            return url
+        } catch {
+            return nil
+        }
     }
 }

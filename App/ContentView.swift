@@ -105,13 +105,21 @@ struct ContentView: View {
             .buttonStyle(.bordered)
 
             Button {
+                model.chooseExportFolder()
+            } label: {
+                Label(model.hasExportFolder ? "Change Export Folder" : "Choose Export Folder", systemImage: "folder")
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .buttonStyle(.bordered)
+
+            Button {
                 Task { await model.exportCatalog() }
             } label: {
                 Label("Export Demo Catalog", systemImage: "square.and.arrow.up")
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
             .buttonStyle(.bordered)
-            .disabled(!model.sessionOn)
+            .disabled(!model.sessionOn || !model.hasExportFolder)
 
             Button(role: .none) {
                 NSApp.terminate(nil)

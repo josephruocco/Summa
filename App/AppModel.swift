@@ -2,6 +2,7 @@ import Foundation
 import ScreenCaptureKit
 import AppKit
 import Combine
+import UniformTypeIdentifiers
 
 @MainActor
 final class AppModel: ObservableObject {
@@ -127,11 +128,24 @@ final class AppModel: ObservableObject {
     func exportCatalog() async {
         do {
             let data = try await recorder.exportDemoJSON(pretty: true)
-            let downloadsURL = try FileManager.default
-                .url(for: .downloadsDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
             let timestamp = ISO8601DateFormatter().string(from: Date())
                 .replacingOccurrences(of: ":", with: "-")
-            let url = downloadsURL.appendingPathComponent("summa_demo_catalog_\(timestamp).json")
+
+            let panel = NSSavePanel()
+            panel.title = "Export Demo Catalog"
+            panel.message = "Choose where to save the demo catalog JSON file."
+            panel.nameFieldStringValue = "summa_demo_catalog_\(timestamp).json"
+            panel.allowedContentTypes = [UTType.json]
+            panel.canCreateDirectories = true
+            panel.isExtensionHidden = false
+
+            NSApp.activate(ignoringOtherApps: true)
+            let response = panel.runModal()
+
+            guard response == .OK, let url = panel.url else {
+                status = "Export cancelled."
+                return
+            }
 
             try data.write(to: url, options: [.atomic])
             status = "Exported demo catalog: \(url.lastPathComponent)"

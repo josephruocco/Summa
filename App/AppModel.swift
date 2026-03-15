@@ -228,7 +228,8 @@ final class AppModel: ObservableObject {
         guard engine.changeGate.shouldProcess(image: frame.cgImage) else { return }
 
         status = "Scanning \(currentWindowLabel.isEmpty ? "window" : currentWindowLabel)…"
-        let tokens = await OCR.ocrTokens(from: frame.cgImage)
+        let cropProfile = OCR.cropProfile(forWindowLabel: currentWindowLabel)
+        let tokens = await OCR.ocrTokens(from: frame.cgImage, cropProfile: cropProfile)
 
         let result = engine.computeHighlights(
             tokens: tokens,

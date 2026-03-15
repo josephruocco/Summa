@@ -136,7 +136,7 @@ actor CatalogRecorder {
                 existing.wikiSummary = wiki.extract
             }
 
-            if h.text.count > existing.text.count {
+            if displayTextScore(h.text) > displayTextScore(existing.text) {
                 existing.text = h.text
             }
 
@@ -377,10 +377,17 @@ actor CatalogRecorder {
     private func semanticKey(kind: Item.Kind, text: String) -> String {
         let normalized = text
             .lowercased()
+            .replacingOccurrences(of: "’", with: "'")
             .trimmingCharacters(in: .whitespacesAndNewlines)
-            .trimmingCharacters(in: CharacterSet(charactersIn: ".,;:!?()[]{}\"'“”‘’"))
+            .trimmingCharacters(in: CharacterSet(charactersIn: ".,;:!?()[]{}\"“”‘’"))
         let prefix = (kind == .vocab) ? "v" : "r"
         return "\(prefix)|\(normalized)"
+    }
+
+    private func displayTextScore(_ text: String) -> Int {
+        let apostropheBonus = text.contains("'") || text.contains("’") ? 20 : 0
+        let uppercaseBonus = text.contains(where: { $0.isUppercase }) ? 8 : 0
+        return text.count + apostropheBonus + uppercaseBonus
     }
 
     private func iso8601Now() -> String {

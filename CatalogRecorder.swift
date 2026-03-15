@@ -72,11 +72,12 @@ actor CatalogRecorder {
         var h: Double
     }
 
-    private var itemsByID: [String: Item] = [:]
+    private var itemsByKey: [String: Item] = [:]
     private var sourceWindowTitle: String? = nil
-    private var lastTokenStrings: [String] = []
+    private var seenTokenHistory: [[String]] = []
     var contextWindow: Int = 6
     var rectQuant: Double = 0.005
+    private let maxTokenHistoryFrames = 40
 
     init(contextWindow: Int = 6, rectQuant: Double = 0.005) {
         self.contextWindow = contextWindow
@@ -88,9 +89,9 @@ actor CatalogRecorder {
     }
 
     func reset() {
-        itemsByID.removeAll()
+        itemsByKey.removeAll()
         sourceWindowTitle = nil
-        lastTokenStrings = []
+        seenTokenHistory = []
     }
 
     func ingest(vocab: [HighlightBox], refs: [HighlightBox], tokens: [OCRToken], overlaySize: CGSize) async {
@@ -101,7 +102,7 @@ actor CatalogRecorder {
             Geometry.visionNormToOverlayTopLeft($0.rectNorm, overlaySize: overlaySize)
         }
         let tokenStrings: [String] = tokens.map { $0.text }
-        lastTokenStrings = tokenStrings
+        rememberTokens(tokenStrings)
 
         for h in (vocab + refs) {
             await ingestOne(highlight: h, tokenRects: tokenRects, tokenStrings: tokenStrings, overlaySize: overlaySize)
@@ -111,19 +112,22 @@ actor CatalogRecorder {
     private func ingestOne(highlight h: HighlightBox, tokenRects: [CGRect], tokenStrings: [String], overlaySize: CGSize) async {
         let now = iso8601Now()
         let nrect = normRectQuantized(h.rect, overlaySize: overlaySize)
-        let id = makeID(kind: h.kind, text: h.text, rect: nrect)
         let idx = nearestTokenIndex(to: h.rect, tokenRects: tokenRects)
         let (before, after) = contextAround(index: idx, stream: tokenStrings, window: contextWindow)
         let kind: Item.Kind = (h.kind == .vocab) ? .vocab : .reference
+        let key = semanticKey(kind: kind, text: h.text)
 
-        if var existing = itemsByID[id] {
+        if var existing = itemsByKey[key] {
             existing.seenCount += 1
             existing.lastSeenISO8601 = now
-            if !before.isEmpty || !after.isEmpty {
+            existing.rect = mergedRect(existing.rect, nrect, seenCount: existing.seenCount)
+
+            if contextScore(before: before, after: after) > contextScore(before: existing.contextBefore, after: existing.contextAfter) {
                 existing.contextBefore = before
                 existing.contextAfter = after
                 existing.contextWindow = contextWindow
             }
+
             if existing.definition == nil && kind == .vocab {
                 existing.definition = Lookups.definition(for: h.text)
             }
@@ -131,7 +135,12 @@ actor CatalogRecorder {
                 let wiki = await Wikipedia.lookup(h.text, contextBefore: before, contextAfter: after)
                 existing.wikiSummary = wiki.extract
             }
-            itemsByID[id] = existing
+
+            if h.text.count > existing.text.count {
+                existing.text = h.text
+            }
+
+            itemsByKey[key] = existing
         } else {
             var definition: String? = nil
             var wikiSummary: String? = nil
@@ -143,8 +152,8 @@ actor CatalogRecorder {
                 wikiSummary = wiki.extract
             }
 
-            itemsByID[id] = Item(
-                id: id,
+            itemsByKey[key] = Item(
+                id: key,
                 kind: kind,
                 text: h.text,
                 rect: nrect,
@@ -164,8 +173,9 @@ actor CatalogRecorder {
         Catalog(
             createdAtISO8601: iso8601Now(),
             sourceWindowTitle: sourceWindowTitle,
-            items: itemsByID.values.sorted {
+            items: itemsByKey.values.sorted {
                 if $0.kind != $1.kind { return $0.kind.rawValue < $1.kind.rawValue }
+                if $0.seenCount != $1.seenCount { return $0.seenCount > $1.seenCount }
                 return $0.text.lowercased() < $1.text.lowercased()
             }
         )
@@ -191,7 +201,7 @@ actor CatalogRecorder {
         var consumedRanges: [Range<String.Index>] = []
         var annotations: [DemoCatalog.Annotation] = []
 
-        let sortedItems = itemsByID.values.sorted {
+        let sortedItems = itemsByKey.values.sorted {
             if $0.seenCount != $1.seenCount { return $0.seenCount > $1.seenCount }
             return $0.text.count > $1.text.count
         }
@@ -249,10 +259,36 @@ actor CatalogRecorder {
     }
 
     private func reconstructedText() -> String {
-        lastTokenStrings
+        var out: [String] = []
+        var seenWindow = Set<String>()
+
+        for frame in seenTokenHistory {
+            for token in frame {
+                let trimmed = token.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !trimmed.isEmpty else { continue }
+
+                let key = trimmed.lowercased()
+                if seenWindow.contains(key) {
+                    continue
+                }
+                seenWindow.insert(key)
+                out.append(trimmed)
+            }
+        }
+
+        return out.joined(separator: " ")
+    }
+
+    private func rememberTokens(_ tokens: [String]) {
+        let cleaned = tokens
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
-            .joined(separator: " ")
+
+        guard !cleaned.isEmpty else { return }
+        seenTokenHistory.append(cleaned)
+        if seenTokenHistory.count > maxTokenHistoryFrames {
+            seenTokenHistory.removeFirst(seenTokenHistory.count - maxTokenHistoryFrames)
+        }
     }
 
     private func findRange(
@@ -323,10 +359,28 @@ actor CatalogRecorder {
         return NormRect(x: q(x), y: q(y), w: q(w), h: q(h))
     }
 
-    private func makeID(kind: HighlightBox.Kind, text: String, rect: NormRect) -> String {
-        let k = (kind == .vocab) ? "v" : "r"
-        let t = text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        return "\(k)|\(t)|\(rect.x),\(rect.y),\(rect.w),\(rect.h)"
+    private func mergedRect(_ a: NormRect, _ b: NormRect, seenCount: Int) -> NormRect {
+        let weight = min(Double(max(seenCount - 1, 1)), 8.0)
+        let total = weight + 1.0
+        return NormRect(
+            x: ((a.x * weight) + b.x) / total,
+            y: ((a.y * weight) + b.y) / total,
+            w: ((a.w * weight) + b.w) / total,
+            h: ((a.h * weight) + b.h) / total
+        )
+    }
+
+    private func contextScore(before: String, after: String) -> Int {
+        before.count + after.count
+    }
+
+    private func semanticKey(kind: Item.Kind, text: String) -> String {
+        let normalized = text
+            .lowercased()
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: CharacterSet(charactersIn: ".,;:!?()[]{}\"'“”‘’"))
+        let prefix = (kind == .vocab) ? "v" : "r"
+        return "\(prefix)|\(normalized)"
     }
 
     private func iso8601Now() -> String {

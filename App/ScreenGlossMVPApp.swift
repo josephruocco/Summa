@@ -13,7 +13,7 @@ struct ScreenGlossMVPApp: App {
                     await model.startAutomaticModeIfNeeded()
                 }
         } label: {
-            Label("SUMMA", systemImage: model.sessionOn ? "text.viewfinder" : "pause.circle")
+            Label("SUMMA", systemImage: model.sessionOn ? "book.closed.fill" : "book.closed")
         }
         .menuBarExtraStyle(.window)
 

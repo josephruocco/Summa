@@ -8,6 +8,46 @@ actor CatalogRecorder {
         var items: [Item]
     }
 
+    struct DemoCatalog: Codable {
+        struct Source: Codable {
+            var title: String?
+            var createdAtISO8601: String
+            var textLength: Int
+        }
+
+        struct Annotation: Codable {
+            struct Span: Codable {
+                var start: Int
+                var end: Int
+            }
+
+            struct Payload: Codable {
+                struct DictionaryPayload: Codable {
+                    var headword: String
+                    var pos: String?
+                    var definition: String
+                }
+
+                var dictionary: DictionaryPayload?
+                var summary: String?
+                var wikiTitle: String?
+                var wikiURL: String?
+            }
+
+            var id: String
+            var kind: String
+            var surface: String
+            var span: Span
+            var confidence: Double
+            var payload: Payload
+        }
+
+        var schema_version: String
+        var source: Source
+        var text: String
+        var annotations: [Annotation]
+    }
+
     struct Item: Codable, Hashable, Identifiable {
         enum Kind: String, Codable { case vocab, reference }
 
@@ -32,10 +72,12 @@ actor CatalogRecorder {
         var h: Double
     }
 
-    private var itemsByID: [String: Item] = [:]
+    private var itemsByKey: [String: Item] = [:]
     private var sourceWindowTitle: String? = nil
+    private var seenTokenHistory: [[String]] = []
     var contextWindow: Int = 6
     var rectQuant: Double = 0.005
+    private let maxTokenHistoryFrames = 40
 
     init(contextWindow: Int = 6, rectQuant: Double = 0.005) {
         self.contextWindow = contextWindow
@@ -47,11 +89,12 @@ actor CatalogRecorder {
     }
 
     func reset() {
-        itemsByID.removeAll()
+        itemsByKey.removeAll()
         sourceWindowTitle = nil
+        seenTokenHistory = []
     }
 
-    func ingest(vocab: [HighlightBox], refs: [HighlightBox], tokens: [OCRToken], overlaySize: CGSize) {
+    func ingest(vocab: [HighlightBox], refs: [HighlightBox], tokens: [OCRToken], overlaySize: CGSize) async {
         guard overlaySize.width > 0, overlaySize.height > 0 else { return }
         guard !tokens.isEmpty else { return }
 
@@ -59,40 +102,66 @@ actor CatalogRecorder {
             Geometry.visionNormToOverlayTopLeft($0.rectNorm, overlaySize: overlaySize)
         }
         let tokenStrings: [String] = tokens.map { $0.text }
+        rememberTokens(tokenStrings)
 
         for h in (vocab + refs) {
-            ingestOne(highlight: h, tokenRects: tokenRects, tokenStrings: tokenStrings, overlaySize: overlaySize)
+            await ingestOne(highlight: h, tokenRects: tokenRects, tokenStrings: tokenStrings, overlaySize: overlaySize)
         }
     }
 
-    private func ingestOne(highlight h: HighlightBox, tokenRects: [CGRect], tokenStrings: [String], overlaySize: CGSize) {
+    private func ingestOne(highlight h: HighlightBox, tokenRects: [CGRect], tokenStrings: [String], overlaySize: CGSize) async {
         let now = iso8601Now()
         let nrect = normRectQuantized(h.rect, overlaySize: overlaySize)
-        let id = makeID(kind: h.kind, text: h.text, rect: nrect)
         let idx = nearestTokenIndex(to: h.rect, tokenRects: tokenRects)
         let (before, after) = contextAround(index: idx, stream: tokenStrings, window: contextWindow)
         let kind: Item.Kind = (h.kind == .vocab) ? .vocab : .reference
+        let key = semanticKey(kind: kind, text: h.text)
 
-        if var existing = itemsByID[id] {
+        if var existing = itemsByKey[key] {
             existing.seenCount += 1
             existing.lastSeenISO8601 = now
-            if !before.isEmpty || !after.isEmpty {
+            existing.rect = mergedRect(existing.rect, nrect, seenCount: existing.seenCount)
+
+            if contextScore(before: before, after: after) > contextScore(before: existing.contextBefore, after: existing.contextAfter) {
                 existing.contextBefore = before
                 existing.contextAfter = after
                 existing.contextWindow = contextWindow
             }
-            itemsByID[id] = existing
+
+            if existing.definition == nil && kind == .vocab {
+                existing.definition = Lookups.definition(for: h.text)
+            }
+            if existing.wikiSummary == nil && kind == .reference {
+                let wiki = await Wikipedia.lookup(h.text, contextBefore: before, contextAfter: after)
+                existing.wikiSummary = wiki.extract
+            }
+
+            if displayTextScore(h.text) > displayTextScore(existing.text) {
+                existing.text = h.text
+            }
+
+            itemsByKey[key] = existing
         } else {
-            itemsByID[id] = Item(
-                id: id,
+            var definition: String? = nil
+            var wikiSummary: String? = nil
+
+            if kind == .vocab {
+                definition = Lookups.definition(for: h.text)
+            } else {
+                let wiki = await Wikipedia.lookup(h.text, contextBefore: before, contextAfter: after)
+                wikiSummary = wiki.extract
+            }
+
+            itemsByKey[key] = Item(
+                id: key,
                 kind: kind,
                 text: h.text,
                 rect: nrect,
                 contextBefore: before,
                 contextAfter: after,
                 contextWindow: contextWindow,
-                definition: nil,
-                wikiSummary: nil,
+                definition: definition,
+                wikiSummary: wikiSummary,
                 seenCount: 1,
                 firstSeenISO8601: now,
                 lastSeenISO8601: now
@@ -104,8 +173,9 @@ actor CatalogRecorder {
         Catalog(
             createdAtISO8601: iso8601Now(),
             sourceWindowTitle: sourceWindowTitle,
-            items: itemsByID.values.sorted {
+            items: itemsByKey.values.sorted {
                 if $0.kind != $1.kind { return $0.kind.rawValue < $1.kind.rawValue }
+                if $0.seenCount != $1.seenCount { return $0.seenCount > $1.seenCount }
                 return $0.text.lowercased() < $1.text.lowercased()
             }
         )
@@ -116,6 +186,133 @@ actor CatalogRecorder {
         let enc = JSONEncoder()
         enc.outputFormatting = pretty ? [.prettyPrinted, .sortedKeys] : []
         return try enc.encode(cat)
+    }
+
+    func exportDemoJSON(pretty: Bool = true) throws -> Data {
+        let demo = buildDemoCatalog()
+        let enc = JSONEncoder()
+        enc.outputFormatting = pretty ? [.prettyPrinted, .sortedKeys] : []
+        return try enc.encode(demo)
+    }
+
+    private func buildDemoCatalog() -> DemoCatalog {
+        let text = reconstructedText()
+        let lowered = text.lowercased()
+        var consumedRanges: [Range<String.Index>] = []
+        var annotations: [DemoCatalog.Annotation] = []
+
+        let sortedItems = itemsByKey.values.sorted {
+            if $0.seenCount != $1.seenCount { return $0.seenCount > $1.seenCount }
+            return $0.text.count > $1.text.count
+        }
+
+        for item in sortedItems {
+            guard let range = findRange(for: item.text, in: text, lowered: lowered, avoiding: consumedRanges) else { continue }
+            consumedRanges.append(range)
+
+            let start = text.distance(from: text.startIndex, to: range.lowerBound)
+            let end = text.distance(from: text.startIndex, to: range.upperBound)
+            let payload: DemoCatalog.Annotation.Payload
+
+            switch item.kind {
+            case .vocab:
+                let def = item.definition ?? "No dictionary entry found."
+                payload = .init(
+                    dictionary: .init(headword: item.text, pos: nil, definition: def),
+                    summary: nil,
+                    wikiTitle: nil,
+                    wikiURL: nil
+                )
+            case .reference:
+                payload = .init(
+                    dictionary: nil,
+                    summary: item.wikiSummary ?? "No Wikipedia summary found.",
+                    wikiTitle: item.text,
+                    wikiURL: nil
+                )
+            }
+
+            annotations.append(
+                .init(
+                    id: item.id,
+                    kind: item.kind.rawValue,
+                    surface: item.text,
+                    span: .init(start: start, end: end),
+                    confidence: min(0.99, 0.55 + Double(item.seenCount) * 0.08),
+                    payload: payload
+                )
+            )
+        }
+
+        annotations.sort { $0.span.start < $1.span.start }
+
+        return DemoCatalog(
+            schema_version: "1.1",
+            source: .init(
+                title: sourceWindowTitle,
+                createdAtISO8601: iso8601Now(),
+                textLength: text.count
+            ),
+            text: text,
+            annotations: annotations
+        )
+    }
+
+    private func reconstructedText() -> String {
+        var out: [String] = []
+        var seenWindow = Set<String>()
+
+        for frame in seenTokenHistory {
+            for token in frame {
+                let trimmed = token.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !trimmed.isEmpty else { continue }
+
+                let key = trimmed.lowercased()
+                if seenWindow.contains(key) {
+                    continue
+                }
+                seenWindow.insert(key)
+                out.append(trimmed)
+            }
+        }
+
+        return out.joined(separator: " ")
+    }
+
+    private func rememberTokens(_ tokens: [String]) {
+        let cleaned = tokens
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+
+        guard !cleaned.isEmpty else { return }
+        seenTokenHistory.append(cleaned)
+        if seenTokenHistory.count > maxTokenHistoryFrames {
+            seenTokenHistory.removeFirst(seenTokenHistory.count - maxTokenHistoryFrames)
+        }
+    }
+
+    private func findRange(
+        for surface: String,
+        in text: String,
+        lowered: String,
+        avoiding consumedRanges: [Range<String.Index>]
+    ) -> Range<String.Index>? {
+        let needle = surface.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !needle.isEmpty else { return nil }
+
+        var searchStart = lowered.startIndex
+        while searchStart < lowered.endIndex,
+              let range = lowered.range(of: needle, range: searchStart..<lowered.endIndex) {
+            if consumedRanges.allSatisfy({ !rangesOverlap($0, range) }) {
+                return range
+            }
+            searchStart = range.upperBound
+        }
+        return nil
+    }
+
+    private func rangesOverlap(_ a: Range<String.Index>, _ b: Range<String.Index>) -> Bool {
+        a.lowerBound < b.upperBound && b.lowerBound < a.upperBound
     }
 
     private func nearestTokenIndex(to highlightRect: CGRect, tokenRects: [CGRect]) -> Int {
@@ -162,10 +359,35 @@ actor CatalogRecorder {
         return NormRect(x: q(x), y: q(y), w: q(w), h: q(h))
     }
 
-    private func makeID(kind: HighlightBox.Kind, text: String, rect: NormRect) -> String {
-        let k = (kind == .vocab) ? "v" : "r"
-        let t = text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        return "\(k)|\(t)|\(rect.x),\(rect.y),\(rect.w),\(rect.h)"
+    private func mergedRect(_ a: NormRect, _ b: NormRect, seenCount: Int) -> NormRect {
+        let weight = min(Double(max(seenCount - 1, 1)), 8.0)
+        let total = weight + 1.0
+        return NormRect(
+            x: ((a.x * weight) + b.x) / total,
+            y: ((a.y * weight) + b.y) / total,
+            w: ((a.w * weight) + b.w) / total,
+            h: ((a.h * weight) + b.h) / total
+        )
+    }
+
+    private func contextScore(before: String, after: String) -> Int {
+        before.count + after.count
+    }
+
+    private func semanticKey(kind: Item.Kind, text: String) -> String {
+        let normalized = text
+            .lowercased()
+            .replacingOccurrences(of: "’", with: "'")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: CharacterSet(charactersIn: ".,;:!?()[]{}\"“”‘’"))
+        let prefix = (kind == .vocab) ? "v" : "r"
+        return "\(prefix)|\(normalized)"
+    }
+
+    private func displayTextScore(_ text: String) -> Int {
+        let apostropheBonus = text.contains("'") || text.contains("’") ? 20 : 0
+        let uppercaseBonus = text.contains(where: { $0.isUppercase }) ? 8 : 0
+        return text.count + apostropheBonus + uppercaseBonus
     }
 
     private func iso8601Now() -> String {

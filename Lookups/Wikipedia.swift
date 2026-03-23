@@ -215,6 +215,7 @@ enum Wikipedia {
                     status: summary.status
                 )
                 var enriched = summary
+                enriched.requested = requested
                 enriched.score = score
                 resolved.append((enriched, score))
             }
@@ -269,7 +270,9 @@ enum Wikipedia {
         contextBefore: String?,
         contextAfter: String?
     ) -> [SearchCandidate] {
-        candidates.sorted {
+        candidates
+            .filter { passesLexicalGate(requested: requested, candidateTitle: $0.title, snippet: $0.snippet) }
+            .sorted {
             scoreCandidate(
                 requested: requested,
                 title: $0.title,
@@ -366,10 +369,21 @@ enum Wikipedia {
         let reqWords = Set(req.split(separator: " ").map(String.init))
         let titleWords = Set(normalizedTitle.split(separator: " ").map(String.init))
         let summaryWords = Set(summary.split(separator: " ").map(String.init))
+        let titleOverlap = reqWords.intersection(titleWords).count
+        let summaryOverlap = reqWords.intersection(summaryWords).count
+        let requestedHasUppercase = requested.contains { $0.isUppercase }
 
         if !reqWords.isEmpty {
-            score += Double(reqWords.intersection(titleWords).count) * 0.12
-            score += Double(reqWords.intersection(summaryWords).count) * 0.05
+            score += Double(titleOverlap) * 0.12
+            score += Double(summaryOverlap) * 0.05
+        }
+
+        if titleOverlap == 0, !normalizedTitle.contains(req), !req.contains(normalizedTitle) {
+            score -= 0.35
+        }
+
+        if requestedHasUppercase, reqWords.count == 1, titleOverlap > 0, titleWords.count >= 2 {
+            score += 0.24
         }
 
         if !context.isEmpty {
@@ -387,7 +401,6 @@ enum Wikipedia {
             score -= 0.45
         }
 
-        let requestedHasUppercase = requested.contains { $0.isUppercase }
         if !requestedHasUppercase && (titleWords.count >= 2 || loweredSummary.contains("born")) {
             score -= 0.18
         }
@@ -397,6 +410,32 @@ enum Wikipedia {
         }
 
         return max(0, min(1, score))
+    }
+
+    private static func passesLexicalGate(
+        requested: String,
+        candidateTitle: String,
+        snippet: String
+    ) -> Bool {
+        let req = normalize(requested)
+        let normalizedTitle = normalize(candidateTitle)
+        let normalizedSnippet = normalize(snippet)
+        let reqWords = Set(req.split(separator: " ").map(String.init))
+        let titleWords = Set(normalizedTitle.split(separator: " ").map(String.init))
+
+        if normalizedTitle == req || normalizedTitle.contains(req) || req.contains(normalizedTitle) {
+            return true
+        }
+
+        if !reqWords.intersection(titleWords).isEmpty {
+            return true
+        }
+
+        if reqWords.count == 1, let onlyWord = reqWords.first, normalizedSnippet.contains(onlyWord) {
+            return true
+        }
+
+        return false
     }
 
     private static func normalize(_ s: String) -> String {

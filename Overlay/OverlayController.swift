@@ -41,6 +41,7 @@ final class OverlayController {
     private var targetFrame: CGRect = .zero
     private var sidebarAnchorX: CGFloat = 0
     private var debugModeEnabled = false
+    private var sourceTitle: String?
 
     var currentSize: CGSize { window.contentView?.bounds.size ?? .zero }
     var currentContentSize: CGSize { targetFrame.isEmpty ? currentSize : targetFrame.size }
@@ -122,6 +123,10 @@ final class OverlayController {
     func setDebugMode(_ enabled: Bool) {
         debugModeEnabled = enabled
         render(hovered: hovered, tooltip: nil)
+    }
+
+    func setSourceTitle(_ title: String?) {
+        sourceTitle = title
     }
 
     func clear() {
@@ -324,6 +329,27 @@ final class OverlayController {
     private func fetchTooltip(for h: HighlightBox) async -> OverlayTooltip? {
         let text = h.text
         let key = lookupKey(for: h)
+
+        if let override = BookAnnotationStore.shared.resolve(term: text, kind: h.kind, sourceTitle: sourceTitle) {
+            if h.kind == .vocab, let definition = override.definition {
+                return .dictionary(term: text, definition: definition)
+            }
+
+            if h.kind == .reference, let summary = override.summary {
+                return .wiki(
+                    WikiResult(
+                        status: .ok,
+                        requested: text,
+                        title: text,
+                        extract: summary,
+                        pageURL: nil,
+                        thumbnailURL: nil,
+                        debug: override.debug,
+                        score: 1.0
+                    )
+                )
+            }
+        }
 
         if h.kind == .vocab {
             if let cached = LookupCache.shared.dictionary(key) {

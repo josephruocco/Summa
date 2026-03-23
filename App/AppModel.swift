@@ -127,6 +127,8 @@ final class AppModel: ObservableObject {
             status = "Targeting \(currentWindowLabel)."
         }
 
+        overlay?.setSourceTitle(currentWindowLabel)
+
         if startIfNeeded {
             await startSession(for: win)
         }
@@ -216,6 +218,7 @@ final class AppModel: ObservableObject {
 
         startScrollMonitor()
         await recorder.setSourceWindowTitle(windowLabel(win))
+        overlay?.setSourceTitle(windowLabel(win))
 
         status = "Starting capture for \(windowLabel(win))…"
 

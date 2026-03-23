@@ -133,11 +133,15 @@ struct OverlayView: View {
                     if hiddenCount > 0 {
                         Text("+\(hiddenCount) more notes")
                             .font(.system(size: 11, weight: .medium))
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(Color.primary.opacity(0.78))
                             .padding(.horizontal, 12)
                             .padding(.vertical, 6)
                             .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(.ultraThinMaterial)
+                            .background(Color.white.opacity(0.92))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                    .stroke(Color.black.opacity(0.10), lineWidth: 1)
+                            )
                             .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                     }
                 }
@@ -160,44 +164,54 @@ struct OverlayView: View {
 
         var body: some View {
             VStack(alignment: .leading, spacing: 6) {
-                Text(annotation.highlight.text)
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(Color.primary)
-                    .lineLimit(1)
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Capsule()
+                        .fill(color.opacity(0.95))
+                        .frame(width: 7, height: 7)
+
+                    Text(annotation.highlight.text)
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(Color.primary.opacity(0.95))
+                        .lineLimit(1)
+
+                    Spacer(minLength: 0)
+                }
 
                 switch annotation.tooltip {
                 case .loading:
                     Text("Loading…")
                         .font(.system(size: 12))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(Color.primary.opacity(0.55))
                         .lineLimit(1)
                 case .dictionary(_, let definition):
                     Text(definition)
                         .font(.system(size: 12))
-                        .foregroundStyle(.primary)
+                        .foregroundStyle(Color.primary.opacity(0.88))
                         .lineLimit(bodyLineLimit)
                 case .wiki(let result):
                     if let title = result.title, !title.isEmpty, title.caseInsensitiveCompare(annotation.highlight.text) != .orderedSame {
                         Text(title)
                             .font(.system(size: 12, weight: .medium))
-                            .foregroundStyle(.primary)
+                            .foregroundStyle(Color.primary.opacity(0.82))
                             .lineLimit(1)
                     }
 
                     Text(wikiText(result))
                         .font(.system(size: 12))
-                        .foregroundStyle(result.status == .ok ? .primary : .secondary)
+                        .foregroundStyle(result.status == .ok ? Color.primary.opacity(0.88) : Color.primary.opacity(0.60))
                         .lineLimit(bodyLineLimit)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: maxHeight, alignment: .topLeading)
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
-            .background(.ultraThinMaterial)
-            .background(color.opacity(0.22))
+            .background(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(mix(color, with: .white, amount: 0.78))
+            )
             .overlay(
                 RoundedRectangle(cornerRadius: 10)
-                    .stroke(color.opacity(0.95), lineWidth: 1.5)
+                    .stroke(color.opacity(0.98), lineWidth: 1.4)
             )
             .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         }
@@ -217,6 +231,23 @@ struct OverlayView: View {
             case .error:
                 return (result.extract?.isEmpty == false) ? result.extract! : "Wikipedia lookup failed."
             }
+        }
+
+        private func mix(_ a: Color, with b: Color, amount: CGFloat) -> Color {
+            let t = max(0, min(1, amount))
+
+            #if os(macOS)
+            let na = NSColor(a).usingColorSpace(.deviceRGB) ?? .white
+            let nb = NSColor(b).usingColorSpace(.deviceRGB) ?? .white
+
+            let r = na.redComponent * (1 - t) + nb.redComponent * t
+            let g = na.greenComponent * (1 - t) + nb.greenComponent * t
+            let bl = na.blueComponent * (1 - t) + nb.blueComponent * t
+
+            return Color(red: r, green: g, blue: bl)
+            #else
+            return a
+            #endif
         }
     }
 

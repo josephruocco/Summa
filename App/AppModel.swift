@@ -9,6 +9,7 @@ final class AppModel: ObservableObject {
     static let shared = AppModel()
     private static let exportFolderBookmarkKey = "summa.exportFolderBookmark"
     private static let overlayLayoutKey = "summa.overlayLayout"
+    private static let annotationDebugKey = "summa.annotationDebug"
 
     @Published var windows: [SCWindow] = []
     @Published var selectedWindowID: UInt32? = nil
@@ -22,6 +23,12 @@ final class AppModel: ObservableObject {
         didSet {
             UserDefaults.standard.set(overlayLayout.rawValue, forKey: Self.overlayLayoutKey)
             overlay?.setLayoutMode(overlayLayout)
+        }
+    }
+    @Published var showAnnotationDebug: Bool = false {
+        didSet {
+            UserDefaults.standard.set(showAnnotationDebug, forKey: Self.annotationDebugKey)
+            overlay?.setDebugMode(showAnnotationDebug)
         }
     }
 
@@ -46,6 +53,7 @@ final class AppModel: ObservableObject {
         NSApp.setActivationPolicy(.accessory)
         hasExportFolder = loadExportFolderURL() != nil
         overlayLayout = loadOverlayLayout()
+        showAnnotationDebug = UserDefaults.standard.bool(forKey: Self.annotationDebugKey)
 
         activationObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didActivateApplicationNotification,
@@ -203,6 +211,7 @@ final class AppModel: ObservableObject {
         if overlay == nil {
             overlay = OverlayController()
             overlay?.setLayoutMode(overlayLayout)
+            overlay?.setDebugMode(showAnnotationDebug)
         }
 
         startScrollMonitor()

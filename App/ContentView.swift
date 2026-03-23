@@ -89,6 +89,7 @@ struct ContentView: View {
             Menu {
                 Toggle("Show Vocab Highlights", isOn: $model.showVocab)
                 Toggle("Show Reference Highlights", isOn: $model.showRefs)
+                Toggle("Show Annotation Debug", isOn: $model.showAnnotationDebug)
             } label: {
                 Label("Highlight Options", systemImage: "slider.horizontal.3")
                     .font(.system(size: 12))

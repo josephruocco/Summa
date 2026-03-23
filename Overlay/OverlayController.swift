@@ -40,6 +40,7 @@ final class OverlayController {
     private var hoverTask: Task<Void, Never>?
     private var targetFrame: CGRect = .zero
     private var sidebarAnchorX: CGFloat = 0
+    private var debugModeEnabled = false
 
     var currentSize: CGSize { window.contentView?.bounds.size ?? .zero }
     var currentContentSize: CGSize { targetFrame.isEmpty ? currentSize : targetFrame.size }
@@ -53,7 +54,8 @@ final class OverlayController {
             layoutMode: .hover,
             sideAnnotations: [],
             sideRailWidth: 0,
-            sidebarAnchorX: 0
+            sidebarAnchorX: 0,
+            debugModeEnabled: false
         )
         host = NSHostingView(rootView: view)
 
@@ -115,6 +117,11 @@ final class OverlayController {
         }
 
         render(hovered: nil, tooltip: nil)
+    }
+
+    func setDebugMode(_ enabled: Bool) {
+        debugModeEnabled = enabled
+        render(hovered: hovered, tooltip: nil)
     }
 
     func clear() {
@@ -207,7 +214,8 @@ final class OverlayController {
             layoutMode: layoutMode,
             sideAnnotations: currentSidebarAnnotations(),
             sideRailWidth: sideRailWidth(for: window.frame),
-            sidebarAnchorX: sidebarAnchorX
+            sidebarAnchorX: sidebarAnchorX,
+            debugModeEnabled: debugModeEnabled
         )
     }
 

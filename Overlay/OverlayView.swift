@@ -9,6 +9,7 @@ struct OverlayView: View {
     let sideAnnotations: [OverlaySidebarAnnotation]
     let sideRailWidth: CGFloat
     let sidebarAnchorX: CGFloat
+    let debugModeEnabled: Bool
 
     private let palette: [Color] = [
         Color(red: 0.55, green: 0.85, blue: 0.87),
@@ -46,6 +47,7 @@ struct OverlayView: View {
                         overlaySize: size,
                         sideRailWidth: sideRailWidth,
                         sidebarAnchorX: sidebarAnchorX,
+                        debugModeEnabled: debugModeEnabled,
                         colorForTerm: color(for:)
                     )
                 }
@@ -108,6 +110,7 @@ struct OverlayView: View {
         let overlaySize: CGSize
         let sideRailWidth: CGFloat
         let sidebarAnchorX: CGFloat
+        let debugModeEnabled: Bool
         let colorForTerm: (String) -> Color
 
         var body: some View {
@@ -139,7 +142,8 @@ struct OverlayView: View {
                     SidebarCard(
                         annotation: annotation,
                         color: colorForTerm(annotation.highlight.text),
-                        maxHeight: 168
+                        maxHeight: debugModeEnabled ? 196 : 168,
+                        debugModeEnabled: debugModeEnabled
                     )
                 }
 
@@ -185,6 +189,7 @@ struct OverlayView: View {
         let annotation: OverlaySidebarAnnotation
         let color: Color
         let maxHeight: CGFloat
+        let debugModeEnabled: Bool
 
         var body: some View {
             VStack(alignment: .leading, spacing: 6) {
@@ -224,6 +229,10 @@ struct OverlayView: View {
                         .font(.system(size: 12))
                         .foregroundStyle(result.status == .ok ? Color.black.opacity(0.84) : Color.black.opacity(0.58))
                         .lineLimit(bodyLineLimit)
+
+                    if debugModeEnabled {
+                        debugInfo(for: result)
+                    }
                 }
             }
             .frame(maxWidth: .infinity, alignment: .topLeading)
@@ -258,6 +267,21 @@ struct OverlayView: View {
                 return (result.extract?.isEmpty == false) ? result.extract! : "Wikipedia lookup failed."
             case .suppressed:
                 return (result.extract?.isEmpty == false) ? result.extract! : "Suppressed low-confidence match."
+            }
+        }
+
+        @ViewBuilder
+        private func debugInfo(for result: WikiResult) -> some View {
+            let parts = [
+                result.score.map { String(format: "score %.2f", $0) },
+                result.debug
+            ].compactMap { $0 }.filter { !$0.isEmpty }
+
+            if !parts.isEmpty {
+                Text(parts.joined(separator: " | "))
+                    .font(.system(size: 10))
+                    .foregroundStyle(Color.black.opacity(0.50))
+                    .lineLimit(3)
             }
         }
 

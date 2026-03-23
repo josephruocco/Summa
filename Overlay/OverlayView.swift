@@ -115,14 +115,18 @@ struct OverlayView: View {
             let verticalPadding: CGFloat = 12
             let spacing: CGFloat = 10
             let reservedWidth = max(0, sideRailWidth)
-            let preferredWidth = reservedWidth > 0
-                ? reservedWidth - horizontalPadding
-                : (overlaySize.width < 1100 ? overlaySize.width * 0.34 : overlaySize.width * 0.28)
-            let sidebarWidth = min(max(280, preferredWidth), max(240, overlaySize.width - horizontalPadding * 2))
+            let railContainerPadding: CGFloat = 12
+            let minimumUsableReservedWidth: CGFloat = 230
+            let gutterWidth = max(0, reservedWidth - horizontalPadding - railContainerPadding * 2)
+            let fallbackWidth = overlaySize.width < 1100 ? overlaySize.width * 0.34 : overlaySize.width * 0.28
+            let sidebarWidth = reservedWidth > 0
+                ? gutterWidth
+                : fallbackWidth
             let usableHeight = max(140, overlaySize.height - verticalPadding * 2)
             let visibleFooterHeight: CGFloat = hiddenCount > 0 ? 28 : 0
             let cardBudget = (usableHeight - visibleFooterHeight - spacing * CGFloat(max(visibleAnnotations.count - 1, 0))) / CGFloat(max(visibleAnnotations.count, 1))
             let cardHeight = min(210, max(86, cardBudget))
+            let showsCompressedRail = reservedWidth > 0 && reservedWidth <= minimumUsableReservedWidth
 
             HStack {
                 Spacer(minLength: 0)
@@ -152,7 +156,7 @@ struct OverlayView: View {
                     }
                 }
                 .frame(width: sidebarWidth)
-                .padding(.horizontal, 12)
+                .padding(.horizontal, railContainerPadding)
                 .padding(.top, verticalPadding)
                 .padding(.trailing, horizontalPadding)
                 .padding(.bottom, verticalPadding)
@@ -164,7 +168,7 @@ struct OverlayView: View {
                     RoundedRectangle(cornerRadius: 18, style: .continuous)
                         .stroke(Color.black.opacity(0.10), lineWidth: 1)
                 )
-                .shadow(color: Color.black.opacity(0.08), radius: 10, x: 0, y: 4)
+                .shadow(color: Color.black.opacity(showsCompressedRail ? 0.10 : 0.08), radius: showsCompressedRail ? 8 : 10, x: 0, y: 4)
                 .padding(.top, 8)
                 .padding(.trailing, 8)
             }
@@ -221,7 +225,9 @@ struct OverlayView: View {
                         .lineLimit(bodyLineLimit)
                 }
             }
-            .frame(maxWidth: .infinity, maxHeight: maxHeight, alignment: .topLeading)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(minHeight: 52, maxHeight: maxHeight, alignment: .topLeading)
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
             .background(

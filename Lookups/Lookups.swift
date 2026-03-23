@@ -14,12 +14,20 @@ enum Lookups {
         if let cached = defCache[w] { lock.unlock(); return cached }
         lock.unlock()
 
-        let result = (
-            dictionaryDefinition(for: w)
-            ?? dictionaryDefinition(for: w.lowercased())
-            ?? dictionaryDefinition(for: stripPossessive(w))
-            ?? dictionaryDefinition(for: stripPossessive(w.lowercased()))
-        ).flatMap(condenseDefinition)
+        let candidates = lookupTerms(for: w).compactMap { term -> (String, String)? in
+            guard let rawDefinition = dictionaryDefinition(for: term),
+                  let condensed = condenseDefinition(rawDefinition) else {
+                return nil
+            }
+            return (term, condensed)
+        }
+
+        let result = candidates
+            .map { (definition: $0.1, score: scoreDefinition(term: w, query: $0.0, definition: $0.1)) }
+            .filter { $0.score >= 0.35 }
+            .sorted { lhs, rhs in lhs.score > rhs.score }
+            .first?
+            .definition
 
         lock.lock()
         defCache[w] = result
@@ -104,6 +112,69 @@ enum Lookups {
         return text.isEmpty ? nil : text
     }
 
+    private static func lookupTerms(for word: String) -> [String] {
+        let base = word.trimmingCharacters(in: .whitespacesAndNewlines)
+        let stripped = stripPossessive(base)
+        let singular = singularize(stripped)
+
+        var seen = Set<String>()
+        return [base, base.lowercased(), stripped, stripped.lowercased(), singular, singular.lowercased()]
+            .map(normalize)
+            .filter { !$0.isEmpty }
+            .filter { seen.insert($0).inserted }
+    }
+
+    private static func scoreDefinition(term: String, query: String, definition: String) -> Double {
+        let normalizedTerm = normalize(term).lowercased()
+        let normalizedQuery = normalize(query).lowercased()
+        let loweredDefinition = definition.lowercased()
+        let wordCount = definition.split(whereSeparator: \.isWhitespace).count
+
+        var score = 0.0
+
+        if normalizedQuery == normalizedTerm {
+            score += 0.28
+        } else if normalizedQuery == singularize(normalizedTerm) {
+            score += 0.22
+        } else {
+            score += 0.12
+        }
+
+        if (2...12).contains(wordCount) {
+            score += 0.24
+        } else if wordCount <= 18 {
+            score += 0.12
+        } else {
+            score -= min(0.22, Double(wordCount - 18) * 0.02)
+        }
+
+        if loweredDefinition.contains(normalizedTerm) {
+            score -= 0.10
+        }
+
+        if loweredDefinition.contains("example") || loweredDefinition.contains("especially ") {
+            score -= 0.12
+        }
+
+        if definition.contains("\"") || definition.contains("'") {
+            score -= 0.08
+        }
+
+        let uppercaseWords = definition.split(separator: " ").filter {
+            guard let first = $0.first else { return false }
+            return first.isUppercase
+        }.count
+        if !term.contains(where: \.isUppercase), uppercaseWords >= 2 {
+            score -= 0.16
+        }
+
+        if normalizedTerm.count <= 3 {
+            score -= 0.12
+        }
+
+        return max(0, min(1, score))
+    }
+
     private static func normalize(_ s: String) -> String {
         let t = s.trimmingCharacters(in: .punctuationCharacters.union(.whitespacesAndNewlines))
         // Helps OCR oddities (diacritics/width variants)
@@ -113,6 +184,14 @@ enum Lookups {
     private static func stripPossessive(_ s: String) -> String {
         if s.hasSuffix("'s") { return String(s.dropLast(2)) }
         if s.hasSuffix("’s") { return String(s.dropLast(2)) }
+        return s
+    }
+
+    private static func singularize(_ s: String) -> String {
+        guard s.count > 4 else { return s }
+        if s.hasSuffix("ies") { return String(s.dropLast(3)) + "y" }
+        if s.hasSuffix("ses") || s.hasSuffix("xes") || s.hasSuffix("zes") { return String(s.dropLast()) }
+        if s.hasSuffix("s"), !s.hasSuffix("ss") { return String(s.dropLast()) }
         return s
     }
 }

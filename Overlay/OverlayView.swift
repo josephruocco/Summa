@@ -128,7 +128,7 @@ struct OverlayView: View {
             let cardBudget = (usableHeight - visibleFooterHeight - spacing * CGFloat(max(visibleAnnotations.count - 1, 0))) / CGFloat(max(visibleAnnotations.count, 1))
             let cardHeight = min(220, max(64, cardBudget))
             let showsCompressedRail = reservedWidth > 0 && reservedWidth <= minimumUsableReservedWidth
-            let leadingGapFromContent: CGFloat = reservedWidth > 0 ? 6 : 0
+            let leadingGapFromContent: CGFloat = reservedWidth > 0 ? 0 : 0
 
             VStack(alignment: .leading, spacing: spacing) {
                 ForEach(visibleAnnotations) { annotation in
@@ -168,7 +168,7 @@ struct OverlayView: View {
             )
             .shadow(color: Color.black.opacity(showsCompressedRail ? 0.10 : 0.08), radius: showsCompressedRail ? 8 : 10, x: 0, y: 4)
             .padding(.top, 8)
-            .offset(x: contentWidth + leadingGapFromContent, y: 0)
+            .offset(x: max(0, contentWidth - railContainerPadding - horizontalPadding) + leadingGapFromContent, y: 0)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
 

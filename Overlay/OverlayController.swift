@@ -315,7 +315,7 @@ final class OverlayController {
 
     private func fetchTooltip(for h: HighlightBox) async -> OverlayTooltip? {
         let text = h.text
-        let key = normalizeKey(text)
+        let key = lookupKey(for: h)
 
         if h.kind == .vocab {
             if let cached = LookupCache.shared.dictionary(key) {
@@ -339,6 +339,25 @@ final class OverlayController {
     private func sidebarKey(for highlight: HighlightBox) -> String {
         let prefix = highlight.kind == .vocab ? "v" : "r"
         return "\(prefix)|\(normalizeKey(highlight.text))"
+    }
+
+    private func lookupKey(for highlight: HighlightBox) -> String {
+        let prefix = highlight.kind == .vocab ? "v" : "r"
+        let context = [highlight.contextBefore, highlight.contextAfter]
+            .joined(separator: " ")
+            .lowercased()
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+        let signature = context
+            .split(separator: " ")
+            .prefix(10)
+            .joined(separator: " ")
+
+        if signature.isEmpty {
+            return "\(prefix)|\(normalizeKey(highlight.text))"
+        }
+
+        return "\(prefix)|\(normalizeKey(highlight.text))|\(signature)"
     }
 }
 

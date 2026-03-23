@@ -331,7 +331,7 @@ final class OverlayController {
             return cached.status == .ok ? .wiki(cached) : nil
         }
 
-        let wiki = await Wikipedia.lookup(text, contextBefore: nil, contextAfter: nil)
+        let wiki = await Wikipedia.lookup(text, contextBefore: h.contextBefore, contextAfter: h.contextAfter)
         LookupCache.shared.setWikipedia(key, wiki)
         return wiki.status == .ok ? .wiki(wiki) : nil
     }

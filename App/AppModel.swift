@@ -242,11 +242,15 @@ final class AppModel: ObservableObject {
         let tokens = await OCR.ocrTokens(from: frame.cgImage, cropProfile: cropProfile)
 
         let overlaySize = overlay?.currentContentSize ?? frame.size
-        let result = engine.computeHighlights(
+        let rawResult = engine.computeHighlights(
             tokens: tokens,
             windowSize: overlaySize,
             showVocab: showVocab,
             showRefs: showRefs
+        )
+        let result = (
+            vocab: enrichContexts(rawResult.vocab, tokens: tokens, overlaySize: overlaySize),
+            refs: enrichContexts(rawResult.refs, tokens: tokens, overlaySize: overlaySize)
         )
         let sidebarAnchorX = computeSidebarAnchorX(tokens: tokens, overlaySize: overlaySize)
 
@@ -351,5 +355,55 @@ final class AppModel: ObservableObject {
 
         let percentileIndex = min(rightEdges.count - 1, max(0, Int(Double(rightEdges.count - 1) * 0.92)))
         return rightEdges[percentileIndex]
+    }
+
+    private func enrichContexts(_ highlights: [HighlightBox], tokens: [OCRToken], overlaySize: CGSize) -> [HighlightBox] {
+        guard !highlights.isEmpty, !tokens.isEmpty else { return highlights }
+
+        let tokenRects = tokens.map { OCR.normToRectInOverlay_TopLeftOrigin($0.rectNorm, overlaySize: overlaySize) }
+        let tokenStrings = tokens.map(\.text)
+
+        return highlights.map { highlight in
+            let index = nearestTokenIndex(to: highlight.rect, tokenRects: tokenRects)
+            let context = contextAround(index: index, stream: tokenStrings, window: 8)
+            return HighlightBox(
+                text: highlight.text,
+                rect: highlight.rect,
+                kind: highlight.kind,
+                contextBefore: context.before,
+                contextAfter: context.after
+            )
+        }
+    }
+
+    private func nearestTokenIndex(to highlightRect: CGRect, tokenRects: [CGRect]) -> Int {
+        guard !tokenRects.isEmpty else { return -1 }
+
+        let target = CGPoint(x: highlightRect.midX, y: highlightRect.midY)
+        var bestIndex = 0
+        var bestDistance = Double.greatestFiniteMagnitude
+
+        for (index, rect) in tokenRects.enumerated() {
+            let center = CGPoint(x: rect.midX, y: rect.midY)
+            let dx = Double(center.x - target.x)
+            let dy = Double(center.y - target.y)
+            let distance = dx * dx + dy * dy
+            if distance < bestDistance {
+                bestDistance = distance
+                bestIndex = index
+            }
+        }
+
+        return bestIndex
+    }
+
+    private func contextAround(index: Int, stream: [String], window: Int) -> (before: String, after: String) {
+        guard !stream.isEmpty, window > 0, index >= 0, index < stream.count else { return ("", "") }
+
+        let lowerBound = max(0, index - window)
+        let upperBound = min(stream.count - 1, index + window)
+        let before = lowerBound < index ? stream[lowerBound..<index].joined(separator: " ") : ""
+        let after = index < upperBound ? stream[(index + 1)...upperBound].joined(separator: " ") : ""
+        return (before, after)
     }
 }

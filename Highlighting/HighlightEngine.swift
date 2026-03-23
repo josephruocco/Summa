@@ -13,6 +13,22 @@ struct HighlightBox: Identifiable, Hashable {
     let text: String
     let rect: CGRect          // overlay-local coords (top-left origin assumed by your drawing)
     let kind: Kind
+    let contextBefore: String
+    let contextAfter: String
+
+    init(
+        text: String,
+        rect: CGRect,
+        kind: Kind,
+        contextBefore: String = "",
+        contextAfter: String = ""
+    ) {
+        self.text = text
+        self.rect = rect
+        self.kind = kind
+        self.contextBefore = contextBefore
+        self.contextAfter = contextAfter
+    }
 }
 
 final class HighlightEngine {

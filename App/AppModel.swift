@@ -242,7 +242,7 @@ final class AppModel: ObservableObject {
 
         let result = engine.computeHighlights(
             tokens: tokens,
-            windowSize: overlay?.currentSize ?? frame.size,
+            windowSize: overlay?.currentContentSize ?? frame.size,
             showVocab: showVocab,
             showRefs: showRefs
         )
@@ -257,7 +257,7 @@ final class AppModel: ObservableObject {
                 vocab: result.vocab,
                 refs: result.refs,
                 tokens: tokens,
-                overlaySize: self.overlay?.currentSize ?? frame.size
+                overlaySize: self.overlay?.currentContentSize ?? frame.size
             )
         }
 

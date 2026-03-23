@@ -41,6 +41,7 @@ final class OverlayController {
     private var targetFrame: CGRect = .zero
 
     var currentSize: CGSize { window.contentView?.bounds.size ?? .zero }
+    var currentContentSize: CGSize { targetFrame.isEmpty ? currentSize : targetFrame.size }
 
     init() {
         let view = OverlayView(vocab: [], refs: [], hovered: nil, tooltip: nil, layoutMode: .hover, sideAnnotations: [], sideRailWidth: 0)

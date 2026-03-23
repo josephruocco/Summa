@@ -90,6 +90,21 @@ final class HighlightEngine {
             s.range(of: #"\d"#, options: .regularExpression) != nil
         }
 
+        func isLikelyBadSingleReference(_ s: String) -> Bool {
+            let trimmed = s.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.count <= 2 { return true }
+
+            let letters = trimmed.filter(\.isLetter)
+            if letters.count <= 2 { return true }
+
+            let uppercaseCount = letters.filter(\.isUppercase).count
+            if uppercaseCount == letters.count, letters.count <= 5 {
+                return true
+            }
+
+            return false
+        }
+
         // Build enriched token list + overlay rects
         var ts: [T] = []
         ts.reserveCapacity(tokens.count)
@@ -258,6 +273,7 @@ final class HighlightEngine {
                     let looksNamey = t.cleaned.count >= 6
 
                     if isFirstInLine && !looksNamey { continue }
+                    if isLikelyBadSingleReference(t.cleaned) { continue }
 
                     refs.append(HighlightBox(text: t.cleaned, rect: t.rect, kind: .reference))
                     consumedTokenIdx.insert(t.idx)

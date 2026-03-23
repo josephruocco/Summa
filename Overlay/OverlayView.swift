@@ -19,6 +19,10 @@ struct OverlayView: View {
     var body: some View {
         GeometryReader { geo in
             let size = geo.size
+            let rightmostHighlightX = max(
+                vocab.map(\.rect.maxX).max() ?? 0,
+                refs.map(\.rect.maxX).max() ?? 0
+            )
 
             ZStack(alignment: .topLeading) {
                 ForEach(vocab) { h in
@@ -44,6 +48,7 @@ struct OverlayView: View {
                         sideAnnotations: sideAnnotations,
                         overlaySize: size,
                         sideRailWidth: sideRailWidth,
+                        highlightAnchorX: rightmostHighlightX,
                         colorForTerm: color(for:)
                     )
                 }
@@ -105,6 +110,7 @@ struct OverlayView: View {
         let sideAnnotations: [OverlaySidebarAnnotation]
         let overlaySize: CGSize
         let sideRailWidth: CGFloat
+        let highlightAnchorX: CGFloat
         let colorForTerm: (String) -> Color
 
         var body: some View {
@@ -115,7 +121,6 @@ struct OverlayView: View {
             let verticalPadding: CGFloat = 12
             let spacing: CGFloat = 10
             let reservedWidth = max(0, sideRailWidth)
-            let contentWidth = max(0, overlaySize.width - reservedWidth)
             let railContainerPadding: CGFloat = reservedWidth > 0 ? 10 : 12
             let minimumUsableReservedWidth: CGFloat = 230
             let gutterWidth = max(0, reservedWidth - horizontalPadding - railContainerPadding * 2)
@@ -123,12 +128,15 @@ struct OverlayView: View {
             let sidebarWidth = reservedWidth > 0
                 ? gutterWidth
                 : fallbackWidth
+            let sidebarLeftEdge = min(
+                max(highlightAnchorX + 10, 0),
+                max(0, overlaySize.width - sidebarWidth - 8)
+            )
             let usableHeight = max(140, overlaySize.height - verticalPadding * 2)
             let visibleFooterHeight: CGFloat = hiddenCount > 0 ? 28 : 0
             let cardBudget = (usableHeight - visibleFooterHeight - spacing * CGFloat(max(visibleAnnotations.count - 1, 0))) / CGFloat(max(visibleAnnotations.count, 1))
             let cardHeight = min(220, max(64, cardBudget))
             let showsCompressedRail = reservedWidth > 0 && reservedWidth <= minimumUsableReservedWidth
-            let leadingGapFromContent: CGFloat = reservedWidth > 0 ? 0 : 0
 
             VStack(alignment: .leading, spacing: spacing) {
                 ForEach(visibleAnnotations) { annotation in
@@ -168,7 +176,7 @@ struct OverlayView: View {
             )
             .shadow(color: Color.black.opacity(showsCompressedRail ? 0.10 : 0.08), radius: showsCompressedRail ? 8 : 10, x: 0, y: 4)
             .padding(.top, 8)
-            .offset(x: max(0, contentWidth - railContainerPadding - horizontalPadding) + leadingGapFromContent, y: 0)
+            .offset(x: sidebarLeftEdge, y: 0)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
 

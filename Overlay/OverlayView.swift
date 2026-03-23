@@ -125,11 +125,14 @@ struct OverlayView: View {
             let sidebarWidth = reservedWidth > 0
                 ? max(minimumSidebarWidth, min(preferredSidebarWidth, gutterWidth))
                 : fallbackWidth
+            let gutterStartX = max(0, overlaySize.width - reservedWidth)
             let fallbackLeftEdge = max(0, overlaySize.width - sidebarWidth - 8)
-            let sidebarLeftEdge = min(
-                max(sidebarAnchorX + 8, 0),
-                fallbackLeftEdge
-            )
+            let sidebarLeftEdge = reservedWidth > 0
+                ? gutterStartX + 4
+                : min(
+                    max(sidebarAnchorX + 8, 0),
+                    fallbackLeftEdge
+                )
 
             VStack(alignment: .leading, spacing: spacing) {
                 ForEach(visibleAnnotations) { annotation in

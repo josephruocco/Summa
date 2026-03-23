@@ -23,6 +23,9 @@ struct OverlaySidebarAnnotation: Identifiable, Equatable {
 
 @MainActor
 final class OverlayController {
+    private static let sideRailGutterWidth: CGFloat = 360
+    private static let sideRailOuterPadding: CGFloat = 18
+
     private let window: NSPanel
     private let host: NSHostingView<OverlayView>
 
@@ -35,11 +38,12 @@ final class OverlayController {
     private var hoverTimer: Timer?
     private var hovered: HighlightBox?
     private var hoverTask: Task<Void, Never>?
+    private var targetFrame: CGRect = .zero
 
     var currentSize: CGSize { window.contentView?.bounds.size ?? .zero }
 
     init() {
-        let view = OverlayView(vocab: [], refs: [], hovered: nil, tooltip: nil, layoutMode: .hover, sideAnnotations: [])
+        let view = OverlayView(vocab: [], refs: [], hovered: nil, tooltip: nil, layoutMode: .hover, sideAnnotations: [], sideRailWidth: 0)
         host = NSHostingView(rootView: view)
 
         window = NSPanel(
@@ -63,7 +67,8 @@ final class OverlayController {
     }
 
     func setOverlayFrame(_ frame: CGRect) {
-        window.setFrame(frame, display: true)
+        targetFrame = frame
+        applyOverlayFrame()
     }
 
     func setHighlights(vocab: [HighlightBox], refs: [HighlightBox]) {
@@ -85,6 +90,7 @@ final class OverlayController {
 
     func setLayoutMode(_ mode: OverlayAnnotationLayout) {
         layoutMode = mode
+        applyOverlayFrame()
 
         if mode == .side {
             hovered = nil
@@ -182,8 +188,41 @@ final class OverlayController {
             hovered: hovered,
             tooltip: tooltip,
             layoutMode: layoutMode,
-            sideAnnotations: currentSidebarAnnotations()
+            sideAnnotations: currentSidebarAnnotations(),
+            sideRailWidth: sideRailWidth(for: window.frame)
         )
+    }
+
+    private func applyOverlayFrame() {
+        guard !targetFrame.isEmpty else { return }
+        window.setFrame(presentationFrame(for: targetFrame), display: true)
+    }
+
+    private func presentationFrame(for contentFrame: CGRect) -> CGRect {
+        guard layoutMode == .side else { return contentFrame }
+
+        let desiredExtraWidth = Self.sideRailGutterWidth + Self.sideRailOuterPadding
+        let screenFrame = screenFrame(containing: contentFrame) ?? NSScreen.main?.visibleFrame ?? contentFrame
+        let rightSpace = max(0, screenFrame.maxX - contentFrame.maxX)
+        let extraWidth = min(desiredExtraWidth, rightSpace)
+
+        guard extraWidth > 80 else { return contentFrame }
+
+        return CGRect(
+            x: contentFrame.minX,
+            y: contentFrame.minY,
+            width: contentFrame.width + extraWidth,
+            height: contentFrame.height
+        )
+    }
+
+    private func sideRailWidth(for frame: CGRect) -> CGFloat {
+        max(0, frame.width - targetFrame.width)
+    }
+
+    private func screenFrame(containing frame: CGRect) -> CGRect? {
+        let point = CGPoint(x: frame.midX, y: frame.midY)
+        return NSScreen.screens.first(where: { $0.visibleFrame.contains(point) })?.visibleFrame
     }
 
     private func normalizeKey(_ s: String) -> String {

@@ -7,6 +7,7 @@ struct OverlayView: View {
     let tooltip: OverlayTooltip?
     let layoutMode: OverlayAnnotationLayout
     let sideAnnotations: [OverlaySidebarAnnotation]
+    let sideRailWidth: CGFloat
 
     private let palette: [Color] = [
         Color(red: 0.55, green: 0.85, blue: 0.87),
@@ -42,6 +43,7 @@ struct OverlayView: View {
                     SidebarRail(
                         sideAnnotations: sideAnnotations,
                         overlaySize: size,
+                        sideRailWidth: sideRailWidth,
                         colorForTerm: color(for:)
                     )
                 }
@@ -102,6 +104,7 @@ struct OverlayView: View {
     private struct SidebarRail: View {
         let sideAnnotations: [OverlaySidebarAnnotation]
         let overlaySize: CGSize
+        let sideRailWidth: CGFloat
         let colorForTerm: (String) -> Color
 
         var body: some View {
@@ -111,7 +114,10 @@ struct OverlayView: View {
             let horizontalPadding: CGFloat = overlaySize.width < 760 ? 10 : 16
             let verticalPadding: CGFloat = 12
             let spacing: CGFloat = 10
-            let preferredWidth = overlaySize.width < 1100 ? overlaySize.width * 0.34 : overlaySize.width * 0.28
+            let reservedWidth = max(0, sideRailWidth)
+            let preferredWidth = reservedWidth > 0
+                ? reservedWidth - horizontalPadding
+                : (overlaySize.width < 1100 ? overlaySize.width * 0.34 : overlaySize.width * 0.28)
             let sidebarWidth = min(max(280, preferredWidth), max(240, overlaySize.width - horizontalPadding * 2))
             let usableHeight = max(140, overlaySize.height - verticalPadding * 2)
             let visibleFooterHeight: CGFloat = hiddenCount > 0 ? 28 : 0
@@ -133,11 +139,11 @@ struct OverlayView: View {
                     if hiddenCount > 0 {
                         Text("+\(hiddenCount) more notes")
                             .font(.system(size: 11, weight: .medium))
-                            .foregroundStyle(Color.primary.opacity(0.78))
+                            .foregroundStyle(Color.black.opacity(0.72))
                             .padding(.horizontal, 12)
                             .padding(.vertical, 6)
                             .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(Color.white.opacity(0.92))
+                            .background(Color(red: 0.97, green: 0.97, blue: 0.95))
                             .overlay(
                                 RoundedRectangle(cornerRadius: 10, style: .continuous)
                                     .stroke(Color.black.opacity(0.10), lineWidth: 1)
@@ -146,8 +152,21 @@ struct OverlayView: View {
                     }
                 }
                 .frame(width: sidebarWidth)
+                .padding(.horizontal, 12)
                 .padding(.top, verticalPadding)
                 .padding(.trailing, horizontalPadding)
+                .padding(.bottom, verticalPadding)
+                .background(
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .fill(Color(red: 0.985, green: 0.982, blue: 0.96).opacity(0.98))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .stroke(Color.black.opacity(0.10), lineWidth: 1)
+                )
+                .shadow(color: Color.black.opacity(0.08), radius: 10, x: 0, y: 4)
+                .padding(.top, 8)
+                .padding(.trailing, 8)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
         }
@@ -171,7 +190,7 @@ struct OverlayView: View {
 
                     Text(annotation.highlight.text)
                         .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(Color.primary.opacity(0.95))
+                        .foregroundStyle(Color.black.opacity(0.88))
                         .lineLimit(1)
 
                     Spacer(minLength: 0)
@@ -181,24 +200,24 @@ struct OverlayView: View {
                 case .loading:
                     Text("Loading…")
                         .font(.system(size: 12))
-                        .foregroundStyle(Color.primary.opacity(0.55))
+                        .foregroundStyle(Color.black.opacity(0.52))
                         .lineLimit(1)
                 case .dictionary(_, let definition):
                     Text(definition)
                         .font(.system(size: 12))
-                        .foregroundStyle(Color.primary.opacity(0.88))
+                        .foregroundStyle(Color.black.opacity(0.84))
                         .lineLimit(bodyLineLimit)
                 case .wiki(let result):
                     if let title = result.title, !title.isEmpty, title.caseInsensitiveCompare(annotation.highlight.text) != .orderedSame {
                         Text(title)
                             .font(.system(size: 12, weight: .medium))
-                            .foregroundStyle(Color.primary.opacity(0.82))
+                            .foregroundStyle(Color.black.opacity(0.72))
                             .lineLimit(1)
                     }
 
                     Text(wikiText(result))
                         .font(.system(size: 12))
-                        .foregroundStyle(result.status == .ok ? Color.primary.opacity(0.88) : Color.primary.opacity(0.60))
+                        .foregroundStyle(result.status == .ok ? Color.black.opacity(0.84) : Color.black.opacity(0.58))
                         .lineLimit(bodyLineLimit)
                 }
             }
@@ -207,7 +226,7 @@ struct OverlayView: View {
             .padding(.vertical, 10)
             .background(
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(mix(color, with: .white, amount: 0.78))
+                    .fill(mix(color, with: .white, amount: 0.86))
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 10)

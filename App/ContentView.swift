@@ -96,6 +96,19 @@ struct ContentView: View {
             .menuStyle(.borderlessButton)
             .fixedSize()
 
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Annotation Layout")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.secondary)
+
+                Picker("Annotation Layout", selection: $model.overlayLayout) {
+                    ForEach(OverlayAnnotationLayout.allCases) { layout in
+                        Text(layout.title).tag(layout)
+                    }
+                }
+                .pickerStyle(.segmented)
+            }
+
             Button {
                 Task { await model.syncToFrontmostWindow(startIfNeeded: true) }
             } label: {

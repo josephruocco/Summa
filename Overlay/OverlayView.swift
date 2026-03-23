@@ -5,6 +5,8 @@ struct OverlayView: View {
     let refs: [HighlightBox]
     let hovered: HighlightBox?
     let tooltip: OverlayTooltip?
+    let layoutMode: OverlayAnnotationLayout
+    let sideAnnotations: [OverlaySidebarAnnotation]
 
     private let palette: [Color] = [
         Color(red: 0.55, green: 0.85, blue: 0.87),
@@ -36,7 +38,15 @@ struct OverlayView: View {
                         .position(x: h.rect.midX, y: h.rect.midY)
                 }
 
-                if let hovered, let tooltip {
+                if layoutMode == .side, !sideAnnotations.isEmpty {
+                    SidebarRail(
+                        sideAnnotations: sideAnnotations,
+                        overlaySize: size,
+                        colorForTerm: color(for:)
+                    )
+                }
+
+                if layoutMode == .hover, let hovered, let tooltip {
                     TooltipCard(hovered: hovered, tooltip: tooltip, overlaySize: size)
                 }
             }
@@ -52,7 +62,7 @@ struct OverlayView: View {
         let overlaySize: CGSize
 
         var body: some View {
-            let boxW: CGFloat = 380
+            let boxW = max(220, min(380, overlaySize.width - 24))
             let x = clamp(hovered.rect.midX, min: boxW/2 + 12, max: overlaySize.width - boxW/2 - 12)
             let y = max(hovered.rect.minY - 82, 84)
 
@@ -86,6 +96,107 @@ struct OverlayView: View {
 
         private func clamp(_ v: CGFloat, min: CGFloat, max: CGFloat) -> CGFloat {
             Swift.max(min, Swift.min(max, v))
+        }
+    }
+
+    private struct SidebarRail: View {
+        let sideAnnotations: [OverlaySidebarAnnotation]
+        let overlaySize: CGSize
+        let colorForTerm: (String) -> Color
+
+        var body: some View {
+            let horizontalPadding: CGFloat = overlaySize.width < 760 ? 10 : 14
+            let verticalPadding: CGFloat = 12
+            let spacing: CGFloat = sideAnnotations.count > 10 ? 6 : 10
+            let preferredWidth = overlaySize.width < 900 ? overlaySize.width * 0.30 : overlaySize.width * 0.24
+            let sidebarWidth = min(max(200, preferredWidth), max(180, overlaySize.width - horizontalPadding * 2))
+            let usableHeight = max(140, overlaySize.height - verticalPadding * 2)
+            let cardBudget = (usableHeight - spacing * CGFloat(max(sideAnnotations.count - 1, 0))) / CGFloat(max(sideAnnotations.count, 1))
+            let cardHeight = min(170, max(44, cardBudget))
+
+            HStack {
+                Spacer(minLength: 0)
+
+                VStack(alignment: .leading, spacing: spacing) {
+                    ForEach(sideAnnotations) { annotation in
+                        SidebarCard(
+                            annotation: annotation,
+                            color: colorForTerm(annotation.highlight.text),
+                            maxHeight: cardHeight
+                        )
+                    }
+                }
+                .frame(width: sidebarWidth)
+                .padding(.top, verticalPadding)
+                .padding(.trailing, horizontalPadding)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+        }
+    }
+
+    private struct SidebarCard: View {
+        let annotation: OverlaySidebarAnnotation
+        let color: Color
+        let maxHeight: CGFloat
+
+        var body: some View {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(annotation.highlight.text)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(color)
+                    .lineLimit(1)
+
+                switch annotation.tooltip {
+                case .loading:
+                    Text("Loading…")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                case .dictionary(_, let definition):
+                    Text(definition)
+                        .font(.system(size: 11))
+                        .foregroundStyle(.primary)
+                        .lineLimit(bodyLineLimit)
+                case .wiki(let result):
+                    if let title = result.title, !title.isEmpty, title.caseInsensitiveCompare(annotation.highlight.text) != .orderedSame {
+                        Text(title)
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(.primary)
+                            .lineLimit(1)
+                    }
+
+                    Text(wikiText(result))
+                        .font(.system(size: 11))
+                        .foregroundStyle(result.status == .ok ? .primary : .secondary)
+                        .lineLimit(bodyLineLimit)
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: maxHeight, alignment: .topLeading)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+            .background(color.opacity(0.18))
+            .overlay(
+                RoundedRectangle(cornerRadius: 10)
+                    .stroke(color.opacity(0.95), lineWidth: 1.5)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        }
+
+        private var bodyLineLimit: Int {
+            max(2, Int((maxHeight - 24) / 15))
+        }
+
+        private func wikiText(_ result: WikiResult) -> String {
+            switch result.status {
+            case .ok:
+                return (result.extract?.isEmpty == false) ? result.extract! : "No summary text found."
+            case .notFound:
+                return "No Wikipedia page found."
+            case .disambiguation:
+                return (result.extract?.isEmpty == false) ? result.extract! : "Ambiguous term."
+            case .error:
+                return (result.extract?.isEmpty == false) ? result.extract! : "Wikipedia lookup failed."
+            }
         }
     }
 

@@ -1,6 +1,26 @@
 import AppKit
 import SwiftUI
 
+enum OverlayAnnotationLayout: String, CaseIterable, Identifiable {
+    case hover
+    case side
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .hover: return "Hover"
+        case .side: return "Side"
+        }
+    }
+}
+
+struct OverlaySidebarAnnotation: Identifiable, Equatable {
+    let id: String
+    let highlight: HighlightBox
+    let tooltip: OverlayTooltip
+}
+
 @MainActor
 final class OverlayController {
     private let window: NSPanel
@@ -8,6 +28,9 @@ final class OverlayController {
 
     private var vocab: [HighlightBox] = []
     private var refs: [HighlightBox] = []
+    private var layoutMode: OverlayAnnotationLayout = .hover
+    private var sideTooltips: [String: OverlayTooltip] = [:]
+    private var sideLookupTasks: [String: Task<Void, Never>] = [:]
 
     private var hoverTimer: Timer?
     private var hovered: HighlightBox?
@@ -16,7 +39,7 @@ final class OverlayController {
     var currentSize: CGSize { window.contentView?.bounds.size ?? .zero }
 
     init() {
-        let view = OverlayView(vocab: [], refs: [], hovered: nil, tooltip: nil)
+        let view = OverlayView(vocab: [], refs: [], hovered: nil, tooltip: nil, layoutMode: .hover, sideAnnotations: [])
         host = NSHostingView(rootView: view)
 
         window = NSPanel(
@@ -46,13 +69,43 @@ final class OverlayController {
     func setHighlights(vocab: [HighlightBox], refs: [HighlightBox]) {
         self.vocab = vocab
         self.refs = refs
+        pruneSidebarState()
+
+        if layoutMode == .side {
+            hovered = nil
+            hoverTask?.cancel()
+            hoverTask = nil
+            preloadSidebarTooltips()
+            render(hovered: nil, tooltip: nil)
+            return
+        }
+
         render(hovered: hovered, tooltip: nil)
+    }
+
+    func setLayoutMode(_ mode: OverlayAnnotationLayout) {
+        layoutMode = mode
+
+        if mode == .side {
+            hovered = nil
+            hoverTask?.cancel()
+            hoverTask = nil
+            pruneSidebarState()
+            preloadSidebarTooltips()
+            render(hovered: nil, tooltip: nil)
+            return
+        }
+
+        render(hovered: nil, tooltip: nil)
     }
 
     func clear() {
         vocab = []
         refs = []
         hovered = nil
+        sideTooltips.removeAll()
+        sideLookupTasks.values.forEach { $0.cancel() }
+        sideLookupTasks.removeAll()
         hoverTask?.cancel()
         hoverTask = nil
         render(hovered: nil, tooltip: nil)
@@ -69,6 +122,16 @@ final class OverlayController {
     }
 
     private func pollHover() {
+        guard layoutMode == .hover else {
+            if hovered != nil {
+                hovered = nil
+                hoverTask?.cancel()
+                hoverTask = nil
+                render(hovered: nil, tooltip: nil)
+            }
+            return
+        }
+
         let mouse = NSEvent.mouseLocation
         let winFrame = window.frame
 
@@ -107,47 +170,114 @@ final class OverlayController {
 
     private func showToolTip(for h: HighlightBox) async {
         render(hovered: h, tooltip: .loading)
-
-        let text = h.text
-
-        if h.kind == .vocab {
-            let key = normalizeKey(text)
-            if let cached = LookupCache.shared.dictionary(key) {
-                guard hovered?.id == h.id else { return }
-                render(hovered: h, tooltip: .dictionary(term: text, definition: cached))
-                return
-            }
-
-            let def = Lookups.definition(for: text) ?? "No dictionary entry found."
-            LookupCache.shared.setDictionary(key, def)
-
-            guard hovered?.id == h.id else { return }
-            render(hovered: h, tooltip: .dictionary(term: text, definition: def))
-            return
-        }
-
-        let key = normalizeKey(text)
-        if let cached = LookupCache.shared.wikipedia(key) {
-            guard hovered?.id == h.id else { return }
-            render(hovered: h, tooltip: .wiki(cached))
-            return
-        }
-
-        let wiki = await Wikipedia.lookup(text, contextBefore: nil, contextAfter: nil)
-        LookupCache.shared.setWikipedia(key, wiki)
-
-        guard hovered?.id == h.id else { return }
-        render(hovered: h, tooltip: .wiki(wiki))
+        let tooltip = await fetchTooltip(for: h)
+        guard layoutMode == .hover, hovered?.id == h.id else { return }
+        render(hovered: h, tooltip: tooltip)
     }
 
     private func render(hovered: HighlightBox?, tooltip: OverlayTooltip?) {
-        host.rootView = OverlayView(vocab: vocab, refs: refs, hovered: hovered, tooltip: tooltip)
+        host.rootView = OverlayView(
+            vocab: vocab,
+            refs: refs,
+            hovered: hovered,
+            tooltip: tooltip,
+            layoutMode: layoutMode,
+            sideAnnotations: currentSidebarAnnotations()
+        )
     }
 
     private func normalizeKey(_ s: String) -> String {
         s.lowercased()
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .trimmingCharacters(in: CharacterSet(charactersIn: ".,;:!?()[]{}\"'“”‘’"))
+    }
+
+    private func orderedUniqueHighlights() -> [HighlightBox] {
+        let ordered = (vocab + refs).sorted {
+            if abs($0.rect.minY - $1.rect.minY) > 6 {
+                return $0.rect.minY < $1.rect.minY
+            }
+            return $0.rect.minX < $1.rect.minX
+        }
+
+        var seen = Set<String>()
+        var unique: [HighlightBox] = []
+
+        for highlight in ordered {
+            let key = sidebarKey(for: highlight)
+            if seen.insert(key).inserted {
+                unique.append(highlight)
+            }
+        }
+
+        return unique
+    }
+
+    private func currentSidebarAnnotations() -> [OverlaySidebarAnnotation] {
+        orderedUniqueHighlights().compactMap { highlight in
+            let key = sidebarKey(for: highlight)
+            guard let tooltip = sideTooltips[key] else { return nil }
+            return OverlaySidebarAnnotation(id: key, highlight: highlight, tooltip: tooltip)
+        }
+    }
+
+    private func pruneSidebarState() {
+        let validKeys = Set(orderedUniqueHighlights().map(sidebarKey))
+        sideTooltips = sideTooltips.filter { validKeys.contains($0.key) }
+
+        for (key, task) in sideLookupTasks where !validKeys.contains(key) {
+            task.cancel()
+            sideLookupTasks.removeValue(forKey: key)
+        }
+    }
+
+    private func preloadSidebarTooltips() {
+        for highlight in orderedUniqueHighlights() {
+            let key = sidebarKey(for: highlight)
+            if sideTooltips[key] != nil || sideLookupTasks[key] != nil { continue }
+
+            sideTooltips[key] = .loading
+            sideLookupTasks[key] = Task { [weak self] in
+                guard let self else { return }
+                let tooltip = await self.fetchTooltip(for: highlight)
+
+                await MainActor.run {
+                    self.sideLookupTasks[key] = nil
+                    guard self.layoutMode == .side else { return }
+                    guard Set(self.orderedUniqueHighlights().map(self.sidebarKey)).contains(key) else { return }
+                    self.sideTooltips[key] = tooltip
+                    self.render(hovered: nil, tooltip: nil)
+                }
+            }
+        }
+    }
+
+    private func fetchTooltip(for h: HighlightBox) async -> OverlayTooltip {
+        let text = h.text
+        let key = normalizeKey(text)
+
+        if h.kind == .vocab {
+            if let cached = LookupCache.shared.dictionary(key) {
+                return .dictionary(term: text, definition: cached)
+            }
+
+            let def = Lookups.definition(for: text) ?? "No dictionary entry found."
+            LookupCache.shared.setDictionary(key, def)
+            return .dictionary(term: text, definition: def)
+        }
+
+        if let cached = LookupCache.shared.wikipedia(key) {
+            return .wiki(cached)
+        }
+
+        let wiki = await Wikipedia.lookup(text, contextBefore: nil, contextAfter: nil)
+        LookupCache.shared.setWikipedia(key, wiki)
+        return .wiki(wiki)
+    }
+
+    private func sidebarKey(for highlight: HighlightBox) -> String {
+        let prefix = highlight.kind == .vocab ? "v" : "r"
+        return "\(prefix)|\(normalizeKey(highlight.text))"
     }
 }
 

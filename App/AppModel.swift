@@ -8,6 +8,7 @@ import UniformTypeIdentifiers
 final class AppModel: ObservableObject {
     static let shared = AppModel()
     private static let exportFolderBookmarkKey = "summa.exportFolderBookmark"
+    private static let overlayLayoutKey = "summa.overlayLayout"
 
     @Published var windows: [SCWindow] = []
     @Published var selectedWindowID: UInt32? = nil
@@ -17,6 +18,12 @@ final class AppModel: ObservableObject {
     @Published var status: String = "Starting up…"
     @Published var showVocab: Bool = true
     @Published var showRefs: Bool = true
+    @Published var overlayLayout: OverlayAnnotationLayout = .hover {
+        didSet {
+            UserDefaults.standard.set(overlayLayout.rawValue, forKey: Self.overlayLayoutKey)
+            overlay?.setLayoutMode(overlayLayout)
+        }
+    }
 
     @Published var lastHighlightCounts: (vocab: Int, ref: Int) = (0, 0)
     @Published var hasExportFolder: Bool = false
@@ -37,6 +44,7 @@ final class AppModel: ObservableObject {
     private init() {
         NSApp.setActivationPolicy(.accessory)
         hasExportFolder = loadExportFolderURL() != nil
+        overlayLayout = loadOverlayLayout()
 
         activationObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didActivateApplicationNotification,
@@ -193,6 +201,7 @@ final class AppModel: ObservableObject {
 
         if overlay == nil {
             overlay = OverlayController()
+            overlay?.setLayoutMode(overlayLayout)
         }
 
         startScrollMonitor()
@@ -311,5 +320,14 @@ final class AppModel: ObservableObject {
         } catch {
             return nil
         }
+    }
+
+    private func loadOverlayLayout() -> OverlayAnnotationLayout {
+        guard let raw = UserDefaults.standard.string(forKey: Self.overlayLayoutKey),
+              let layout = OverlayAnnotationLayout(rawValue: raw) else {
+            return .hover
+        }
+
+        return layout
     }
 }

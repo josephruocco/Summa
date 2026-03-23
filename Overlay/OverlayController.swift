@@ -23,8 +23,8 @@ struct OverlaySidebarAnnotation: Identifiable, Equatable {
 
 @MainActor
 final class OverlayController {
-    private static let sideRailGutterWidth: CGFloat = 360
-    private static let sideRailOuterPadding: CGFloat = 18
+    private static let sideRailGutterWidth: CGFloat = 430
+    private static let sideRailOuterPadding: CGFloat = 10
 
     private let window: NSPanel
     private let host: NSHostingView<OverlayView>

@@ -111,68 +111,65 @@ struct OverlayView: View {
             let visibleCount = min(sideAnnotations.count, maxVisibleCards)
             let visibleAnnotations = Array(sideAnnotations.prefix(visibleCount))
             let hiddenCount = max(0, sideAnnotations.count - visibleCount)
-            let horizontalPadding: CGFloat = overlaySize.width < 760 ? 10 : 16
+            let horizontalPadding: CGFloat = overlaySize.width < 760 ? 8 : 10
             let verticalPadding: CGFloat = 12
             let spacing: CGFloat = 10
             let reservedWidth = max(0, sideRailWidth)
-            let railContainerPadding: CGFloat = 12
+            let contentWidth = max(0, overlaySize.width - reservedWidth)
+            let railContainerPadding: CGFloat = reservedWidth > 0 ? 10 : 12
             let minimumUsableReservedWidth: CGFloat = 230
             let gutterWidth = max(0, reservedWidth - horizontalPadding - railContainerPadding * 2)
-            let fallbackWidth = overlaySize.width < 1100 ? overlaySize.width * 0.34 : overlaySize.width * 0.28
+            let fallbackWidth = overlaySize.width < 1100 ? overlaySize.width * 0.38 : overlaySize.width * 0.32
             let sidebarWidth = reservedWidth > 0
                 ? gutterWidth
                 : fallbackWidth
             let usableHeight = max(140, overlaySize.height - verticalPadding * 2)
             let visibleFooterHeight: CGFloat = hiddenCount > 0 ? 28 : 0
             let cardBudget = (usableHeight - visibleFooterHeight - spacing * CGFloat(max(visibleAnnotations.count - 1, 0))) / CGFloat(max(visibleAnnotations.count, 1))
-            let cardHeight = min(210, max(86, cardBudget))
+            let cardHeight = min(220, max(64, cardBudget))
             let showsCompressedRail = reservedWidth > 0 && reservedWidth <= minimumUsableReservedWidth
+            let leadingGapFromContent: CGFloat = reservedWidth > 0 ? 6 : 0
 
-            HStack {
-                Spacer(minLength: 0)
-
-                VStack(alignment: .leading, spacing: spacing) {
-                    ForEach(visibleAnnotations) { annotation in
-                        SidebarCard(
-                            annotation: annotation,
-                            color: colorForTerm(annotation.highlight.text),
-                            maxHeight: cardHeight
-                        )
-                    }
-
-                    if hiddenCount > 0 {
-                        Text("+\(hiddenCount) more notes")
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundStyle(Color.black.opacity(0.72))
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 6)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(Color(red: 0.97, green: 0.97, blue: 0.95))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                    .stroke(Color.black.opacity(0.10), lineWidth: 1)
-                            )
-                            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                    }
+            VStack(alignment: .leading, spacing: spacing) {
+                ForEach(visibleAnnotations) { annotation in
+                    SidebarCard(
+                        annotation: annotation,
+                        color: colorForTerm(annotation.highlight.text),
+                        maxHeight: cardHeight
+                    )
                 }
-                .frame(width: sidebarWidth)
-                .padding(.horizontal, railContainerPadding)
-                .padding(.top, verticalPadding)
-                .padding(.trailing, horizontalPadding)
-                .padding(.bottom, verticalPadding)
-                .background(
-                    RoundedRectangle(cornerRadius: 18, style: .continuous)
-                        .fill(Color(red: 0.985, green: 0.982, blue: 0.96).opacity(0.98))
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 18, style: .continuous)
-                        .stroke(Color.black.opacity(0.10), lineWidth: 1)
-                )
-                .shadow(color: Color.black.opacity(showsCompressedRail ? 0.10 : 0.08), radius: showsCompressedRail ? 8 : 10, x: 0, y: 4)
-                .padding(.top, 8)
-                .padding(.trailing, 8)
+
+                if hiddenCount > 0 {
+                    Text("+\(hiddenCount) more notes")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(Color.black.opacity(0.72))
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(Color(red: 0.97, green: 0.97, blue: 0.95))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                .stroke(Color.black.opacity(0.10), lineWidth: 1)
+                        )
+                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                }
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+            .frame(width: sidebarWidth)
+            .padding(.horizontal, railContainerPadding)
+            .padding(.top, verticalPadding)
+            .padding(.bottom, verticalPadding)
+            .background(
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .fill(Color(red: 0.985, green: 0.982, blue: 0.96).opacity(0.98))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .stroke(Color.black.opacity(0.10), lineWidth: 1)
+            )
+            .shadow(color: Color.black.opacity(showsCompressedRail ? 0.10 : 0.08), radius: showsCompressedRail ? 8 : 10, x: 0, y: 4)
+            .padding(.top, 8)
+            .offset(x: contentWidth + leadingGapFromContent, y: 0)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
 
         private var maxVisibleCards: Int {
@@ -227,9 +224,9 @@ struct OverlayView: View {
             }
             .frame(maxWidth: .infinity, alignment: .topLeading)
             .fixedSize(horizontal: false, vertical: true)
-            .frame(minHeight: 52, maxHeight: maxHeight, alignment: .topLeading)
+            .frame(minHeight: 44, maxHeight: maxHeight, alignment: .topLeading)
             .padding(.horizontal, 12)
-            .padding(.vertical, 10)
+            .padding(.vertical, 9)
             .background(
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
                     .fill(mix(color, with: .white, amount: 0.86))

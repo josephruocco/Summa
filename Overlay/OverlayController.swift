@@ -39,12 +39,22 @@ final class OverlayController {
     private var hovered: HighlightBox?
     private var hoverTask: Task<Void, Never>?
     private var targetFrame: CGRect = .zero
+    private var sidebarAnchorX: CGFloat = 0
 
     var currentSize: CGSize { window.contentView?.bounds.size ?? .zero }
     var currentContentSize: CGSize { targetFrame.isEmpty ? currentSize : targetFrame.size }
 
     init() {
-        let view = OverlayView(vocab: [], refs: [], hovered: nil, tooltip: nil, layoutMode: .hover, sideAnnotations: [], sideRailWidth: 0)
+        let view = OverlayView(
+            vocab: [],
+            refs: [],
+            hovered: nil,
+            tooltip: nil,
+            layoutMode: .hover,
+            sideAnnotations: [],
+            sideRailWidth: 0,
+            sidebarAnchorX: 0
+        )
         host = NSHostingView(rootView: view)
 
         window = NSPanel(
@@ -72,9 +82,10 @@ final class OverlayController {
         applyOverlayFrame()
     }
 
-    func setHighlights(vocab: [HighlightBox], refs: [HighlightBox]) {
+    func setHighlights(vocab: [HighlightBox], refs: [HighlightBox], sidebarAnchorX: CGFloat) {
         self.vocab = vocab
         self.refs = refs
+        self.sidebarAnchorX = sidebarAnchorX
         pruneSidebarState()
 
         if layoutMode == .side {
@@ -190,7 +201,8 @@ final class OverlayController {
             tooltip: tooltip,
             layoutMode: layoutMode,
             sideAnnotations: currentSidebarAnnotations(),
-            sideRailWidth: sideRailWidth(for: window.frame)
+            sideRailWidth: sideRailWidth(for: window.frame),
+            sidebarAnchorX: sidebarAnchorX
         )
     }
 

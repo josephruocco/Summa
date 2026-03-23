@@ -8,6 +8,7 @@ struct OverlayView: View {
     let layoutMode: OverlayAnnotationLayout
     let sideAnnotations: [OverlaySidebarAnnotation]
     let sideRailWidth: CGFloat
+    let sidebarAnchorX: CGFloat
 
     private let palette: [Color] = [
         Color(red: 0.55, green: 0.85, blue: 0.87),
@@ -19,10 +20,6 @@ struct OverlayView: View {
     var body: some View {
         GeometryReader { geo in
             let size = geo.size
-            let rightmostHighlightX = max(
-                vocab.map(\.rect.maxX).max() ?? 0,
-                refs.map(\.rect.maxX).max() ?? 0
-            )
 
             ZStack(alignment: .topLeading) {
                 ForEach(vocab) { h in
@@ -48,7 +45,7 @@ struct OverlayView: View {
                         sideAnnotations: sideAnnotations,
                         overlaySize: size,
                         sideRailWidth: sideRailWidth,
-                        highlightAnchorX: rightmostHighlightX,
+                        sidebarAnchorX: sidebarAnchorX,
                         colorForTerm: color(for:)
                     )
                 }
@@ -110,40 +107,36 @@ struct OverlayView: View {
         let sideAnnotations: [OverlaySidebarAnnotation]
         let overlaySize: CGSize
         let sideRailWidth: CGFloat
-        let highlightAnchorX: CGFloat
+        let sidebarAnchorX: CGFloat
         let colorForTerm: (String) -> Color
 
         var body: some View {
             let visibleCount = min(sideAnnotations.count, maxVisibleCards)
             let visibleAnnotations = Array(sideAnnotations.prefix(visibleCount))
             let hiddenCount = max(0, sideAnnotations.count - visibleCount)
-            let horizontalPadding: CGFloat = overlaySize.width < 760 ? 8 : 10
             let verticalPadding: CGFloat = 12
             let spacing: CGFloat = 10
             let reservedWidth = max(0, sideRailWidth)
-            let railContainerPadding: CGFloat = reservedWidth > 0 ? 10 : 12
-            let minimumUsableReservedWidth: CGFloat = 230
-            let gutterWidth = max(0, reservedWidth - horizontalPadding - railContainerPadding * 2)
-            let fallbackWidth = overlaySize.width < 1100 ? overlaySize.width * 0.38 : overlaySize.width * 0.32
+            let railContainerPadding: CGFloat = reservedWidth > 0 ? 8 : 10
+            let preferredSidebarWidth: CGFloat = 352
+            let minimumSidebarWidth: CGFloat = 248
+            let gutterWidth = max(0, reservedWidth - railContainerPadding * 2)
+            let fallbackWidth = min(preferredSidebarWidth, max(minimumSidebarWidth, overlaySize.width * 0.30))
             let sidebarWidth = reservedWidth > 0
-                ? gutterWidth
+                ? max(minimumSidebarWidth, min(preferredSidebarWidth, gutterWidth))
                 : fallbackWidth
+            let fallbackLeftEdge = max(0, overlaySize.width - sidebarWidth - 8)
             let sidebarLeftEdge = min(
-                max(highlightAnchorX + 10, 0),
-                max(0, overlaySize.width - sidebarWidth - 8)
+                max(sidebarAnchorX + 8, 0),
+                fallbackLeftEdge
             )
-            let usableHeight = max(140, overlaySize.height - verticalPadding * 2)
-            let visibleFooterHeight: CGFloat = hiddenCount > 0 ? 28 : 0
-            let cardBudget = (usableHeight - visibleFooterHeight - spacing * CGFloat(max(visibleAnnotations.count - 1, 0))) / CGFloat(max(visibleAnnotations.count, 1))
-            let cardHeight = min(220, max(64, cardBudget))
-            let showsCompressedRail = reservedWidth > 0 && reservedWidth <= minimumUsableReservedWidth
 
             VStack(alignment: .leading, spacing: spacing) {
                 ForEach(visibleAnnotations) { annotation in
                     SidebarCard(
                         annotation: annotation,
                         color: colorForTerm(annotation.highlight.text),
-                        maxHeight: cardHeight
+                        maxHeight: 168
                     )
                 }
 
@@ -174,7 +167,7 @@ struct OverlayView: View {
                 RoundedRectangle(cornerRadius: 22, style: .continuous)
                     .stroke(Color.black.opacity(0.10), lineWidth: 1)
             )
-            .shadow(color: Color.black.opacity(showsCompressedRail ? 0.10 : 0.08), radius: showsCompressedRail ? 8 : 10, x: 0, y: 4)
+            .shadow(color: Color.black.opacity(0.08), radius: 10, x: 0, y: 4)
             .padding(.top, 8)
             .offset(x: sidebarLeftEdge, y: 0)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -232,7 +225,7 @@ struct OverlayView: View {
             }
             .frame(maxWidth: .infinity, alignment: .topLeading)
             .fixedSize(horizontal: false, vertical: true)
-            .frame(minHeight: 44, maxHeight: maxHeight, alignment: .topLeading)
+            .frame(minHeight: 0, maxHeight: maxHeight, alignment: .topLeading)
             .padding(.horizontal, 12)
             .padding(.vertical, 9)
             .background(

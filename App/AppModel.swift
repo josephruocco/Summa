@@ -40,6 +40,7 @@ final class AppModel: ObservableObject {
     private var isScrolling = false
     private var lastVocab: [HighlightBox] = []
     private var lastRefs: [HighlightBox] = []
+    private var lastSidebarAnchorX: CGFloat = 0
 
     private init() {
         NSApp.setActivationPolicy(.accessory)
@@ -240,24 +241,27 @@ final class AppModel: ObservableObject {
         let cropProfile = OCR.cropProfile(forWindowLabel: currentWindowLabel)
         let tokens = await OCR.ocrTokens(from: frame.cgImage, cropProfile: cropProfile)
 
+        let overlaySize = overlay?.currentContentSize ?? frame.size
         let result = engine.computeHighlights(
             tokens: tokens,
-            windowSize: overlay?.currentContentSize ?? frame.size,
+            windowSize: overlaySize,
             showVocab: showVocab,
             showRefs: showRefs
         )
+        let sidebarAnchorX = computeSidebarAnchorX(tokens: tokens, overlaySize: overlaySize)
 
         lastVocab = result.vocab
         lastRefs = result.refs
+        lastSidebarAnchorX = sidebarAnchorX
         lastHighlightCounts = (result.vocab.count, result.refs.count)
-        overlay?.setHighlights(vocab: result.vocab, refs: result.refs)
+        overlay?.setHighlights(vocab: result.vocab, refs: result.refs, sidebarAnchorX: sidebarAnchorX)
 
         Task {
             await self.recorder.ingest(
                 vocab: result.vocab,
                 refs: result.refs,
                 tokens: tokens,
-                overlaySize: self.overlay?.currentContentSize ?? frame.size
+                overlaySize: overlaySize
             )
         }
 
@@ -275,7 +279,11 @@ final class AppModel: ObservableObject {
                     self.overlay?.clear()
                     self.status = "Scrolling…"
                 } else {
-                    self.overlay?.setHighlights(vocab: self.lastVocab, refs: self.lastRefs)
+                    self.overlay?.setHighlights(
+                        vocab: self.lastVocab,
+                        refs: self.lastRefs,
+                        sidebarAnchorX: self.lastSidebarAnchorX
+                    )
                     self.status = self.sessionOn ? "Session running on \(self.currentWindowLabel)." : "Paused"
                 }
             }
@@ -329,5 +337,19 @@ final class AppModel: ObservableObject {
         }
 
         return layout
+    }
+
+    private func computeSidebarAnchorX(tokens: [OCRToken], overlaySize: CGSize) -> CGFloat {
+        guard !tokens.isEmpty, overlaySize.width > 0 else { return 0 }
+
+        let rightEdges = tokens
+            .map { OCR.normToRectInOverlay_TopLeftOrigin($0.rectNorm, overlaySize: overlaySize).maxX }
+            .filter { $0.isFinite && $0 > 0 && $0 < overlaySize.width - 8 }
+            .sorted()
+
+        guard !rightEdges.isEmpty else { return 0 }
+
+        let percentileIndex = min(rightEdges.count - 1, max(0, Int(Double(rightEdges.count - 1) * 0.92)))
+        return rightEdges[percentileIndex]
     }
 }

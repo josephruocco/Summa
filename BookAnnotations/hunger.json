@@ -1,0 +1,53 @@
+{
+  "sourceMatchers": [
+    "hunger",
+    "knut hamsun",
+    "project gutenberg ebook of hunger"
+  ],
+  "entries": [
+    {
+      "term": "Christiania",
+      "aliases": ["Christiania Christiania"],
+      "kind": "reference",
+      "summary": "The former name of Oslo, Norway; the city where the novel is set."
+    },
+    {
+      "term": "Fabian Olsen's",
+      "aliases": ["Fabian Olsens", "Fabian Olsens'"],
+      "kind": "reference",
+      "summary": "A baker or bread shop mentioned in the boarding-house advertisement; it signals the ordinary city life around the narrator."
+    },
+    {
+      "term": "Director of Lighthouses",
+      "aliases": ["Lighthouses"],
+      "kind": "reference",
+      "summary": "An official notice from the government office overseeing lighthouses; here it is just part of the printed matter on the wall."
+    },
+    {
+      "term": "Morgenbladet",
+      "kind": "reference",
+      "summary": "A Norwegian newspaper; here it is one of the old papers pasted on the wall."
+    },
+    {
+      "term": "Ylajali",
+      "kind": "reference",
+      "summary": "A recurring idealized woman in Hunger, partly romantic fantasy and partly projection of the narrator's desires."
+    },
+    {
+      "term": "Happolati",
+      "kind": "reference",
+      "summary": "A fanciful invented name the narrator uses in one of his feverish stories and self-dramatizing fantasies."
+    },
+    {
+      "term": "St Olav's",
+      "kind": "reference",
+      "summary": "A reference to Saint Olaf, a major Norwegian historical and religious figure; in context it points to a named place or institution."
+    },
+    {
+      "term": "Hamsun",
+      "aliases": ["Hamsun's", "Knut Hamsun"],
+      "kind": "reference",
+      "summary": "Knut Hamsun, the Norwegian author of Hunger."
+    }
+  ]
+}

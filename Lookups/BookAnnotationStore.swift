@@ -75,24 +75,21 @@ final class BookAnnotationStore {
     }
 
     private func reload() {
-        guard let directory else { return }
-        let files = (try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil))
-            ?? []
+        let files = directories.flatMap { directory in
+            (try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)) ?? []
+        }
 
         let loadedPacks: [Pack] = files
             .filter { $0.pathExtension.lowercased() == "json" }
-            .compactMap { url in
-                guard let data = try? Data(contentsOf: url) else { return nil }
-                return try? JSONDecoder().decode(Pack.self, from: data)
-            }
+            .compactMap(loadPack)
 
         lock.lock()
         packs = loadedPacks
         lock.unlock()
     }
 
-    private var directory: URL? {
-        Self.makeDirectoryURL()
+    private var directories: [URL] {
+        [Self.makeWorkspaceDirectoryURL(), Self.makeDirectoryURL()].compactMap { $0 }
     }
 
     private static func makeDirectoryURL() -> URL? {
@@ -105,6 +102,18 @@ final class BookAnnotationStore {
             .appendingPathComponent("book-annotations", isDirectory: true)
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         return directory
+    }
+
+    private static func makeWorkspaceDirectoryURL() -> URL? {
+        let cwd = URL(fileURLWithPath: FileManager.default.currentDirectoryPath, isDirectory: true)
+        let directory = cwd.appendingPathComponent("BookAnnotations", isDirectory: true)
+        guard FileManager.default.fileExists(atPath: directory.path) else { return nil }
+        return directory
+    }
+
+    private func loadPack(at url: URL) -> Pack? {
+        guard let data = try? Data(contentsOf: url) else { return nil }
+        return try? JSONDecoder().decode(Pack.self, from: data)
     }
 
     private func entryKindMatches(_ rawKind: String?, kind: HighlightBox.Kind) -> Bool {

@@ -116,9 +116,10 @@ enum Lookups {
         let base = word.trimmingCharacters(in: .whitespacesAndNewlines)
         let stripped = stripPossessive(base)
         let singular = singularize(stripped)
+        let derivedRoots = derivationalRoots(for: singular)
 
         var seen = Set<String>()
-        return [base, base.lowercased(), stripped, stripped.lowercased(), singular, singular.lowercased()]
+        return ([base, base.lowercased(), stripped, stripped.lowercased(), singular, singular.lowercased()] + derivedRoots + derivedRoots.map { $0.lowercased() })
             .map(normalize)
             .filter { !$0.isEmpty }
             .filter { seen.insert($0).inserted }
@@ -136,6 +137,8 @@ enum Lookups {
             score += 0.28
         } else if normalizedQuery == singularize(normalizedTerm) {
             score += 0.22
+        } else if derivationalRoots(for: normalizedTerm).contains(normalizedQuery) {
+            score += 0.34
         } else {
             score += 0.12
         }
@@ -150,6 +153,10 @@ enum Lookups {
 
         if loweredDefinition.contains(normalizedTerm) {
             score -= 0.10
+        }
+
+        if derivationalRoots(for: normalizedTerm).contains(normalizedQuery) {
+            score += 0.16
         }
 
         if loweredDefinition.contains("example") || loweredDefinition.contains("especially ") {
@@ -193,5 +200,45 @@ enum Lookups {
         if s.hasSuffix("ses") || s.hasSuffix("xes") || s.hasSuffix("zes") { return String(s.dropLast()) }
         if s.hasSuffix("s"), !s.hasSuffix("ss") { return String(s.dropLast()) }
         return s
+    }
+
+    private static func derivationalRoots(for s: String) -> [String] {
+        let lower = s.lowercased()
+        var roots: [String] = []
+
+        func append(_ candidate: String) {
+            guard candidate.count >= 4 else { return }
+            roots.append(candidate)
+        }
+
+        if lower.hasSuffix("ancy") || lower.hasSuffix("ency") {
+            append(String(lower.dropLast(1)) + "t")
+        }
+        if lower.hasSuffix("ence") || lower.hasSuffix("ance") {
+            append(String(lower.dropLast(1)) + "t")
+        }
+        if lower.hasSuffix("ity") {
+            append(String(lower.dropLast(3)) + "e")
+            append(String(lower.dropLast(3)))
+        }
+        if lower.hasSuffix("ness") {
+            append(String(lower.dropLast(4)))
+        }
+        if lower.hasSuffix("ly") {
+            append(String(lower.dropLast(2)))
+        }
+        if lower.hasSuffix("ied") {
+            append(String(lower.dropLast(3)) + "y")
+        } else if lower.hasSuffix("ed") {
+            append(String(lower.dropLast(2)))
+            append(String(lower.dropLast(1)))
+        }
+        if lower.hasSuffix("ing") {
+            append(String(lower.dropLast(3)))
+            append(String(lower.dropLast(3)) + "e")
+        }
+
+        var seen = Set<String>()
+        return roots.filter { seen.insert($0).inserted }
     }
 }

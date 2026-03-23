@@ -256,6 +256,8 @@ struct OverlayView: View {
                 return (result.extract?.isEmpty == false) ? result.extract! : "Ambiguous term."
             case .error:
                 return (result.extract?.isEmpty == false) ? result.extract! : "Wikipedia lookup failed."
+            case .suppressed:
+                return (result.extract?.isEmpty == false) ? result.extract! : "Suppressed low-confidence match."
             }
         }
 
@@ -337,6 +339,8 @@ struct OverlayView: View {
                 return (r.extract?.isEmpty == false) ? r.extract! : "Ambiguous term—picked the closest match."
             case .error:
                 return (r.extract?.isEmpty == false) ? r.extract! : "Wikipedia lookup failed."
+            case .suppressed:
+                return (r.extract?.isEmpty == false) ? r.extract! : "Suppressed low-confidence match."
             }
         }
     }

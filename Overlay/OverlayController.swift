@@ -190,6 +190,11 @@ final class OverlayController {
         render(hovered: h, tooltip: .loading)
         let tooltip = await fetchTooltip(for: h)
         guard layoutMode == .hover, hovered?.id == h.id else { return }
+        guard let tooltip else {
+            hovered = nil
+            render(hovered: nil, tooltip: nil)
+            return
+        }
         render(hovered: h, tooltip: tooltip)
     }
 
@@ -297,14 +302,18 @@ final class OverlayController {
                     self.sideLookupTasks[key] = nil
                     guard self.layoutMode == .side else { return }
                     guard Set(self.orderedUniqueHighlights().map(self.sidebarKey)).contains(key) else { return }
-                    self.sideTooltips[key] = tooltip
+                    if let tooltip {
+                        self.sideTooltips[key] = tooltip
+                    } else {
+                        self.sideTooltips.removeValue(forKey: key)
+                    }
                     self.render(hovered: nil, tooltip: nil)
                 }
             }
         }
     }
 
-    private func fetchTooltip(for h: HighlightBox) async -> OverlayTooltip {
+    private func fetchTooltip(for h: HighlightBox) async -> OverlayTooltip? {
         let text = h.text
         let key = normalizeKey(text)
 
@@ -319,12 +328,12 @@ final class OverlayController {
         }
 
         if let cached = LookupCache.shared.wikipedia(key) {
-            return .wiki(cached)
+            return cached.status == .ok ? .wiki(cached) : nil
         }
 
         let wiki = await Wikipedia.lookup(text, contextBefore: nil, contextAfter: nil)
         LookupCache.shared.setWikipedia(key, wiki)
-        return .wiki(wiki)
+        return wiki.status == .ok ? .wiki(wiki) : nil
     }
 
     private func sidebarKey(for highlight: HighlightBox) -> String {

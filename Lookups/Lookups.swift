@@ -14,11 +14,12 @@ enum Lookups {
         if let cached = defCache[w] { lock.unlock(); return cached }
         lock.unlock()
 
-        let result =
+        let result = (
             dictionaryDefinition(for: w)
             ?? dictionaryDefinition(for: w.lowercased())
             ?? dictionaryDefinition(for: stripPossessive(w))
             ?? dictionaryDefinition(for: stripPossessive(w.lowercased()))
+        ).flatMap(condenseDefinition)
 
         lock.lock()
         defCache[w] = result
@@ -32,6 +33,75 @@ enum Lookups {
         let range = CFRangeMake(0, CFStringGetLength(cf))
         guard let unmanaged = DCSCopyTextDefinition(nil, cf, range) else { return nil }
         return unmanaged.takeRetainedValue() as String
+    }
+
+    nonisolated private static func condenseDefinition(_ raw: String) -> String? {
+        let cutMarkers = [
+            " ORIGIN ",
+            " DERIVATIVES ",
+            " PHRASES ",
+            " PHRASAL VERBS ",
+            " USAGE ",
+            " SYNONYMS "
+        ]
+
+        var text = raw.replacingOccurrences(of: "\n", with: " ")
+        text = text.replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+        text = text.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        for marker in cutMarkers {
+            if let range = text.range(of: marker) {
+                text = String(text[..<range.lowerBound])
+            }
+        }
+
+        if let lastPipe = text.range(of: "|", options: .backwards) {
+            text = String(text[lastPipe.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        while true {
+            if let range = text.range(of: #"^\([^)]*\)\s*"#, options: .regularExpression) {
+                text.removeSubrange(range)
+                continue
+            }
+            if let range = text.range(of: #"^\[[^\]]*\]\s*"#, options: .regularExpression) {
+                text.removeSubrange(range)
+                continue
+            }
+            if let range = text.range(of: #"^\d+\s*"#, options: .regularExpression) {
+                text.removeSubrange(range)
+                continue
+            }
+
+            let leadingMetadata = [
+                "auxiliary verb", "modal verb", "mass noun", "count noun",
+                "British English", "North American", "with object", "no object",
+                "informal", "formal", "archaic", "dated", "literary", "humorous",
+                "noun", "verb", "adjective", "adverb", "pronoun", "preposition",
+                "conjunction", "determiner", "exclamation", "predicative"
+            ]
+
+            let lowered = text.lowercased()
+            let match = leadingMetadata.first {
+                let needle = $0.lowercased()
+                return lowered.hasPrefix(needle + " ") || lowered == needle
+            }
+            guard let metadata = match else { break }
+            text.removeFirst(metadata.count)
+            text = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        if let colon = text.firstIndex(of: ":") {
+            text = String(text[..<colon])
+        }
+
+        if let semicolon = text.firstIndex(of: ";") {
+            text = String(text[..<semicolon])
+        }
+
+        text = text.replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+        text = text.trimmingCharacters(in: .whitespacesAndNewlines.union(.punctuationCharacters))
+        return text.isEmpty ? nil : text
     }
 
     private static func normalize(_ s: String) -> String {

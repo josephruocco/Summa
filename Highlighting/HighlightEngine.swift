@@ -58,6 +58,7 @@ final class HighlightEngine {
         // Much tighter caps = less clutter, more signal.
         let maxVocab = 28
         let maxRefs  = 30
+        var seenVocabTerms = Set<String>()
 
         struct T {
             let idx: Int
@@ -280,6 +281,7 @@ final class HighlightEngine {
                     if let _ = Lookups.definition(for: t.lower) {
                         if t.lower.hasSuffix("ly") && t.cleaned.count <= 7 { continue }
                         if t.lower.hasSuffix("ing") && t.cleaned.count <= 8 { continue }
+                        if !seenVocabTerms.insert(t.lower).inserted { continue }
 
                         vocab.append(HighlightBox(text: t.cleaned, rect: t.rect, kind: .vocab))
                     }

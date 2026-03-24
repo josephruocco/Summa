@@ -40,34 +40,57 @@ enum Wikipedia {
             return WikiResult(status: .error, requested: term, title: nil, extract: "No term.", pageURL: nil, thumbnailURL: nil, debug: nil, score: nil)
         }
 
+        guard looksQueryable(requested) else {
+            return WikiResult(
+                status: .notFound,
+                requested: requested,
+                title: nil,
+                extract: "No Wikipedia page found.",
+                pageURL: nil,
+                thumbnailURL: nil,
+                debug: "query failed OCR quality check",
+                score: nil
+            )
+        }
+
+        var hitDisambiguation = false
         for query in retryQueries(for: requested) {
             if let direct = await fetchSummary(title: query) {
                 if let accepted = verify(result: direct, requested: requested, contextBefore: contextBefore, contextAfter: contextAfter) {
                     return accepted
                 }
 
-                if direct.status == .disambiguation || direct.status == .notFound {
-                    let resolved = await resolveViaSearch(query, requested: requested, contextBefore: contextBefore, contextAfter: contextAfter)
+                if direct.status == .disambiguation {
+                    hitDisambiguation = true
+                    let searchTerm = contextAugmentedQuery(query, contextBefore: contextBefore, contextAfter: contextAfter) ?? query
+                    let resolved = await resolveViaSearch(searchTerm, requested: requested, contextBefore: contextBefore, contextAfter: contextAfter)
                     if let resolved, let accepted = verify(result: resolved, requested: requested, contextBefore: contextBefore, contextAfter: contextAfter) {
                         return accepted
                     }
                     if let resolved, resolved.status == .ok {
                         return suppress(result: resolved, reason: "search result scored too low")
                     }
+                } else if direct.status == .notFound {
+                    // 404: not a Wikipedia article; skip search and try next query variant.
+                    continue
                 } else if direct.status == .ok {
                     return suppress(result: direct, reason: "direct result scored too low")
                 }
             }
         }
 
-        if let resolved = await resolveViaSearch(requested, requested: requested, contextBefore: contextBefore, contextAfter: contextAfter) {
-            if let accepted = verify(result: resolved, requested: requested, contextBefore: contextBefore, contextAfter: contextAfter) {
-                return accepted
+        // Only fall back to search if disambiguation was detected — a pure 404 means
+        // the term likely isn't encyclopedic and a search would return unrelated junk.
+        if hitDisambiguation {
+            if let resolved = await resolveViaSearch(requested, requested: requested, contextBefore: contextBefore, contextAfter: contextAfter) {
+                if let accepted = verify(result: resolved, requested: requested, contextBefore: contextBefore, contextAfter: contextAfter) {
+                    return accepted
+                }
+                if resolved.status == .ok {
+                    return suppress(result: resolved, reason: "fallback search result scored too low")
+                }
+                return resolved
             }
-            if resolved.status == .ok {
-                return suppress(result: resolved, reason: "fallback search result scored too low")
-            }
-            return resolved
         }
 
         return WikiResult(
@@ -124,7 +147,10 @@ enum Wikipedia {
             let pageURL = desktop?["page"] as? String
             let thumb = obj["thumbnail"] as? [String: Any]
             let thumbURL = thumb?["source"] as? String
-            let isDisamb = (pageType == "disambiguation") || ((extract ?? "").contains("may refer to"))
+            let extractLower = (extract ?? "").lowercased()
+            let isDisamb = (pageType == "disambiguation")
+                || extractLower.contains("may refer to")
+                || extractLower.contains("can refer to")
 
             return WikiResult(
                 status: isDisamb ? .disambiguation : .ok,
@@ -329,11 +355,12 @@ enum Wikipedia {
         let normalized = requested
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .trimmingCharacters(in: .punctuationCharacters)
-        let strippedPossessive = stripPossessive(normalized)
+        let repaired = repairHyphenation(normalized)
+        let strippedPossessive = stripPossessive(repaired)
         let singular = singularize(strippedPossessive)
 
         var seen = Set<String>()
-        return [requested, normalized, strippedPossessive, singular]
+        return [requested, normalized, repaired, strippedPossessive, singular]
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
             .filter { seen.insert(normalize($0)).inserted }
@@ -386,10 +413,34 @@ enum Wikipedia {
             score += 0.24
         }
 
+        // Context scoring: strip stop words so common words don't inflate overlap.
         if !context.isEmpty {
-            let contextWords = Set(context.split(separator: " ").map(String.init))
-            score += min(0.20, Double(contextWords.intersection(summaryWords).count) * 0.05)
-            score += min(0.10, Double(contextWords.intersection(titleWords).count) * 0.05)
+            let rawContextWords = Set(context.split(separator: " ").map(String.init))
+            let filteredContext = rawContextWords.subtracting(stopWords)
+            let filteredSummary = summaryWords.subtracting(stopWords)
+            let effectiveContext = filteredContext.isEmpty ? rawContextWords : filteredContext
+            let effectiveSummary = filteredContext.isEmpty ? summaryWords : filteredSummary
+            score += min(0.28, Double(effectiveContext.intersection(effectiveSummary).count) * 0.07)
+            score += min(0.14, Double(effectiveContext.intersection(titleWords).count) * 0.07)
+        }
+
+        // Parenthetical disambiguation scoring: "Mercury (planet)" vs "Mercury (mythology)".
+        // A matching parenthetical is strong evidence we have the right sense.
+        if let paren = extractParenthetical(normalizedTitle), !context.isEmpty {
+            let parenWords = Set(normalize(paren).split(separator: " ").map(String.init)).subtracting(stopWords)
+            let contextWords = Set(context.split(separator: " ").map(String.init)).subtracting(stopWords)
+            if !parenWords.isEmpty && !contextWords.isEmpty {
+                if !parenWords.intersection(contextWords).isEmpty {
+                    score += 0.28
+                } else {
+                    score -= 0.12
+                }
+            }
+        }
+
+        // "List of X" articles are never useful for contextual lookups.
+        if normalizedTitle.hasPrefix("list of") {
+            score -= 0.40
         }
 
         let loweredSummary = summary.lowercased()
@@ -436,6 +487,55 @@ enum Wikipedia {
         }
 
         return false
+    }
+
+    private static let stopWords: Set<String> = [
+        "the", "a", "an", "and", "or", "of", "in", "on", "at", "to", "for",
+        "is", "was", "are", "were", "be", "been", "has", "have", "had",
+        "it", "its", "this", "that", "these", "those", "with", "by", "from",
+        "as", "he", "she", "they", "his", "her", "their", "not", "but",
+        "which", "who", "what", "when", "where", "how", "also", "such"
+    ]
+
+    // Extracts the parenthetical disambiguator from a title, e.g. "Mercury (planet)" → "planet".
+    private static func extractParenthetical(_ s: String) -> String? {
+        guard let open = s.lastIndex(of: "("),
+              let close = s.lastIndex(of: ")"),
+              open < close else { return nil }
+        let inner = String(s[s.index(after: open)..<close]).trimmingCharacters(in: .whitespaces)
+        return inner.isEmpty ? nil : inner
+    }
+
+    // Returns a search query enriched with key context words, used when resolving disambiguation.
+    private static func contextAugmentedQuery(_ term: String, contextBefore: String?, contextAfter: String?) -> String? {
+        let combined = [contextBefore, contextAfter].compactMap { $0 }.joined(separator: " ")
+        guard !combined.isEmpty else { return nil }
+        let meaningful = normalize(combined)
+            .split(separator: " ").map(String.init)
+            .filter { !stopWords.contains($0) && $0.count > 3 }
+        guard !meaningful.isEmpty else { return nil }
+        return "\(term) \(meaningful.prefix(2).joined(separator: " "))"
+    }
+
+    // Returns false for strings that are clearly OCR garbage and not worth querying.
+    private static func looksQueryable(_ s: String) -> Bool {
+        let letters = s.filter { $0.isLetter }
+        guard letters.count >= 2 else { return false }
+        let nonWhitespace = s.filter { !$0.isWhitespace }
+        guard !nonWhitespace.isEmpty else { return false }
+        // At least half of non-whitespace chars must be letters (filters "123 /B\\ foo")
+        guard Double(letters.count) / Double(nonWhitespace.count) >= 0.5 else { return false }
+        // Too many words → OCR grabbed running text, not a lookup term
+        guard s.split(separator: " ").count <= 7 else { return false }
+        return true
+    }
+
+    // Repairs common OCR line-break hyphenation artifacts before querying.
+    // E.g. "inter-\nnational" → "international", soft hyphens removed.
+    private static func repairHyphenation(_ s: String) -> String {
+        var r = s.replacingOccurrences(of: "\u{00AD}", with: "") // soft hyphen
+        r = r.replacingOccurrences(of: #"-[ \t\n\r]+"#, with: "", options: .regularExpression)
+        return r.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private static func normalize(_ s: String) -> String {

@@ -189,6 +189,17 @@ final class HighlightEngine {
             lines.append(current)
         }
 
+        // Position lookup: t.idx → index in the reading-order ts array, used for context extraction.
+        var idxToTsPos: [Int: Int] = [:]
+        for (pos, t) in ts.enumerated() { idxToTsPos[t.idx] = pos }
+
+        // Returns the N tokens before and after a position in ts as context strings.
+        func context(aroundTsPos pos: Int, window: Int = 15) -> (before: String, after: String) {
+            let before = ts[max(0, pos - window)..<pos].map { $0.cleaned }.joined(separator: " ")
+            let after  = ts[(pos + 1)..<min(ts.count, pos + window + 1)].map { $0.cleaned }.joined(separator: " ")
+            return (before, after)
+        }
+
         // Track tokens already consumed by phrase refs so we don't also highlight pieces.
         var consumedTokenIdx = Set<Int>()
 
@@ -263,8 +274,14 @@ final class HighlightEngine {
                     if capitalCount >= 2, refs.count < maxRefs {
                         let phrase = parts.map { $0.cleaned }.joined(separator: " ")
                         let rect = unionRect(parts.map { $0.rect })
+                        let ctxBefore = parts.first.flatMap { idxToTsPos[$0.idx] }.map {
+                            ts[max(0, $0 - 15)..<$0].map { $0.cleaned }.joined(separator: " ")
+                        } ?? ""
+                        let ctxAfter = parts.last.flatMap { idxToTsPos[$0.idx] }.map {
+                            ts[($0 + 1)..<min(ts.count, $0 + 16)].map { $0.cleaned }.joined(separator: " ")
+                        } ?? ""
 
-                        refs.append(HighlightBox(text: phrase, rect: rect, kind: .reference))
+                        refs.append(HighlightBox(text: phrase, rect: rect, kind: .reference, contextBefore: ctxBefore, contextAfter: ctxAfter))
 
                         for p in parts { consumedTokenIdx.insert(p.idx) }
                         i = j
@@ -291,7 +308,8 @@ final class HighlightEngine {
                     if isFirstInLine && !looksNamey { continue }
                     if isLikelyBadSingleReference(t.cleaned) { continue }
 
-                    refs.append(HighlightBox(text: t.cleaned, rect: t.rect, kind: .reference))
+                    let (ctxBefore, ctxAfter) = idxToTsPos[t.idx].map { context(aroundTsPos: $0) } ?? ("", "")
+                    refs.append(HighlightBox(text: t.cleaned, rect: t.rect, kind: .reference, contextBefore: ctxBefore, contextAfter: ctxAfter))
                     consumedTokenIdx.insert(t.idx)
                 }
                 if refs.count >= maxRefs { break }
@@ -316,7 +334,8 @@ final class HighlightEngine {
                         if (t.lower.hasSuffix("able") || t.lower.hasSuffix("ible")) && t.cleaned.count <= 9 { continue }
                         if !seenVocabTerms.insert(t.lower).inserted { continue }
 
-                        vocab.append(HighlightBox(text: t.cleaned, rect: t.rect, kind: .vocab))
+                        let (ctxBefore, ctxAfter) = idxToTsPos[t.idx].map { context(aroundTsPos: $0) } ?? ("", "")
+                        vocab.append(HighlightBox(text: t.cleaned, rect: t.rect, kind: .vocab, contextBefore: ctxBefore, contextAfter: ctxAfter))
                     }
                 }
                 if vocab.count >= maxVocab { break }

@@ -34,6 +34,7 @@ final class OverlayController {
     private var layoutMode: OverlayAnnotationLayout = .hover
     private var sideTooltips: [String: OverlayTooltip] = [:]
     private var sideLookupTasks: [String: Task<Void, Never>] = [:]
+    private var suppressedLookupKeys = Set<String>()
 
     private var hoverTimer: Timer?
     private var hovered: HighlightBox?
@@ -136,6 +137,7 @@ final class OverlayController {
         sideTooltips.removeAll()
         sideLookupTasks.values.forEach { $0.cancel() }
         sideLookupTasks.removeAll()
+        suppressedLookupKeys.removeAll()
         hoverTask?.cancel()
         hoverTask = nil
         render(hovered: nil, tooltip: nil)
@@ -181,7 +183,7 @@ final class OverlayController {
         let overlayH = currentSize.height
         let localSwiftUI = CGPoint(x: local.x, y: overlayH - local.y)
 
-        if let hit = (vocab + refs).first(where: { $0.rect.insetBy(dx: -2, dy: -2).contains(localSwiftUI) }) {
+        if let hit = visibleHighlights.first(where: { $0.rect.insetBy(dx: -2, dy: -2).contains(localSwiftUI) }) {
             if hovered?.id != hit.id {
                 hovered = hit
                 hoverTask?.cancel()
@@ -203,17 +205,19 @@ final class OverlayController {
         let tooltip = await fetchTooltip(for: h)
         guard layoutMode == .hover, hovered?.id == h.id else { return }
         guard let tooltip else {
+            suppressedLookupKeys.insert(lookupKey(for: h))
             hovered = nil
             render(hovered: nil, tooltip: nil)
             return
         }
+        suppressedLookupKeys.remove(lookupKey(for: h))
         render(hovered: h, tooltip: tooltip)
     }
 
     private func render(hovered: HighlightBox?, tooltip: OverlayTooltip?) {
         host.rootView = OverlayView(
-            vocab: vocab,
-            refs: refs,
+            vocab: filteredVocab,
+            refs: filteredRefs,
             hovered: hovered,
             tooltip: tooltip,
             layoutMode: layoutMode,
@@ -263,7 +267,7 @@ final class OverlayController {
     }
 
     private func orderedUniqueHighlights() -> [HighlightBox] {
-        let ordered = (vocab + refs).sorted {
+        let ordered = visibleHighlights.sorted {
             if abs($0.rect.minY - $1.rect.minY) > 6 {
                 return $0.rect.minY < $1.rect.minY
             }
@@ -294,6 +298,8 @@ final class OverlayController {
     private func pruneSidebarState() {
         let validKeys = Set(orderedUniqueHighlights().map(sidebarKey))
         sideTooltips = sideTooltips.filter { validKeys.contains($0.key) }
+        let activeLookupKeys = Set((vocab + refs).map(lookupKey))
+        suppressedLookupKeys = suppressedLookupKeys.filter { activeLookupKeys.contains($0) }
 
         for (key, task) in sideLookupTasks where !validKeys.contains(key) {
             task.cancel()
@@ -316,8 +322,10 @@ final class OverlayController {
                     guard self.layoutMode == .side else { return }
                     guard Set(self.orderedUniqueHighlights().map(self.sidebarKey)).contains(key) else { return }
                     if let tooltip {
+                        self.suppressedLookupKeys.remove(self.lookupKey(for: highlight))
                         self.sideTooltips[key] = tooltip
                     } else {
+                        self.suppressedLookupKeys.insert(self.lookupKey(for: highlight))
                         self.sideTooltips.removeValue(forKey: key)
                     }
                     self.render(hovered: nil, tooltip: nil)
@@ -373,6 +381,18 @@ final class OverlayController {
     private func sidebarKey(for highlight: HighlightBox) -> String {
         let prefix = highlight.kind == .vocab ? "v" : "r"
         return "\(prefix)|\(normalizeKey(highlight.text))"
+    }
+
+    private var filteredVocab: [HighlightBox] {
+        vocab.filter { !suppressedLookupKeys.contains(lookupKey(for: $0)) }
+    }
+
+    private var filteredRefs: [HighlightBox] {
+        refs.filter { !suppressedLookupKeys.contains(lookupKey(for: $0)) }
+    }
+
+    private var visibleHighlights: [HighlightBox] {
+        filteredVocab + filteredRefs
     }
 
     private func lookupKey(for highlight: HighlightBox) -> String {

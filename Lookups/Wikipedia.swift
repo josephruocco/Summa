@@ -391,7 +391,6 @@ enum Wikipedia {
         }
 
         score += min(0.18, Double(commonPrefixLen(normalizedTitle, req)) * 0.03)
-        score -= min(0.12, Double(abs(normalizedTitle.count - req.count)) * 0.01)
 
         let reqWords = Set(req.split(separator: " ").map(String.init))
         let titleWords = Set(normalizedTitle.split(separator: " ").map(String.init))
@@ -400,13 +399,30 @@ enum Wikipedia {
         let summaryOverlap = reqWords.intersection(summaryWords).count
         let requestedHasUppercase = requested.contains { $0.isUppercase }
 
+        // Alias/redirect detection: the queried term appears verbatim in the article body
+        // despite no title overlap. Handles historical name redirects (e.g. "Christiania" → Oslo).
+        let isAliasMatch = requestedHasUppercase
+            && !req.contains(" ")
+            && !req.isEmpty
+            && titleOverlap == 0
+            && summaryWords.contains(req)
+
+        // Length mismatch penalty — skipped for alias matches since title divergence is expected
+        if !isAliasMatch {
+            score -= min(0.12, Double(abs(normalizedTitle.count - req.count)) * 0.01)
+        }
+
         if !reqWords.isEmpty {
             score += Double(titleOverlap) * 0.12
             score += Double(summaryOverlap) * 0.05
         }
 
         if titleOverlap == 0, !normalizedTitle.contains(req), !req.contains(normalizedTitle) {
-            score -= 0.35
+            if isAliasMatch {
+                score += 0.70  // strong redirect signal — term is in the article body
+            } else {
+                score -= 0.35
+            }
         }
 
         if requestedHasUppercase, reqWords.count == 1, titleOverlap > 0, titleWords.count >= 2 {

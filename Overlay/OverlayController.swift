@@ -153,7 +153,26 @@ final class OverlayController {
         }
     }
 
+    private func updateMousePassthrough() {
+        guard layoutMode == .side, !targetFrame.isEmpty else {
+            window.ignoresMouseEvents = true
+            return
+        }
+        let mouse = NSEvent.mouseLocation
+        let winFrame = window.frame
+        guard winFrame.contains(mouse) else {
+            window.ignoresMouseEvents = true
+            return
+        }
+        // Content frame ends at targetFrame.width from the window's left edge.
+        // To the right of that is the sidebar gutter — make it interactive.
+        let sidebarStartX = winFrame.minX + targetFrame.width
+        window.ignoresMouseEvents = mouse.x <= sidebarStartX
+    }
+
     private func pollHover() {
+        updateMousePassthrough()
+
         guard layoutMode == .hover else {
             if hovered != nil {
                 hovered = nil

@@ -401,11 +401,15 @@ enum Wikipedia {
 
         // Alias/redirect detection: the queried term appears verbatim in the article body
         // despite no title overlap. Handles historical name redirects (e.g. "Christiania" → Oslo).
+        // We check both the normalized word set AND the raw extract tokenized on non-alphanumeric
+        // boundaries, so "Christiania," or "Christiania." are still matched.
+        let rawBody = [(snippet ?? ""), (extract ?? "")].joined(separator: " ").lowercased()
+        let rawBodyWords = Set(rawBody.components(separatedBy: CharacterSet.alphanumerics.inverted).filter { !$0.isEmpty })
         let isAliasMatch = requestedHasUppercase
             && !req.contains(" ")
             && !req.isEmpty
             && titleOverlap == 0
-            && summaryWords.contains(req)
+            && (summaryWords.contains(req) || rawBodyWords.contains(req))
 
         // Length mismatch penalty — skipped for alias matches since title divergence is expected
         if !isAliasMatch {
@@ -419,7 +423,7 @@ enum Wikipedia {
 
         if titleOverlap == 0, !normalizedTitle.contains(req), !req.contains(normalizedTitle) {
             if isAliasMatch {
-                score += 0.70  // strong redirect signal — term is in the article body
+                score += 0.76  // strong redirect signal — term is in the article body
             } else {
                 score -= 0.35
             }

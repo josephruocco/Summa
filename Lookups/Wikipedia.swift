@@ -121,10 +121,21 @@ enum Wikipedia {
             }
         }
 
-        // Only fall back to search if disambiguation was detected — a pure 404 means
-        // the term likely isn't encyclopedic and a search would return unrelated junk.
-        if hitDisambiguation {
-            if let resolved = await resolveViaSearch(requested, requested: requested, contextBefore: contextBefore, contextAfter: contextAfter) {
+        // Silent-redirect recovery: Wikipedia returned a 200 OK but the title has no word
+        // overlap with the requested term, meaning it silently redirected elsewhere (e.g.
+        // "Christiania" → Oslo). The short REST API extract rarely contains the original
+        // name, so isAliasMatch never fires from the direct lookup. A plain search for the
+        // original term returns snippets that DO mention it, making alias scoring work.
+        let isSingleProperNoun = requested.first?.isUppercase == true && !requested.contains(" ")
+        let gotSilentRedirect = !allBaseNotFound && bestDirectScore < 0.30 && isSingleProperNoun
+
+        // Fall back to search if disambiguation was detected, or if a silent redirect was
+        // detected. A pure 404 with no redirect still skips search to avoid junk.
+        if hitDisambiguation || gotSilentRedirect {
+            let searchTerm = hitDisambiguation
+                ? (contextAugmentedQuery(requested, contextBefore: contextBefore, contextAfter: contextAfter) ?? requested)
+                : requested  // plain search for redirect case — snippet will mention the original term
+            if let resolved = await resolveViaSearch(searchTerm, requested: requested, contextBefore: contextBefore, contextAfter: contextAfter) {
                 if let accepted = verify(result: resolved, requested: requested, contextBefore: contextBefore, contextAfter: contextAfter) {
                     return accepted
                 }

@@ -703,6 +703,7 @@ enum Wikipedia {
     private static func normalize(_ s: String) -> String {
         let t = s.lowercased()
             .replacingOccurrences(of: "_", with: " ")
+            .replacingOccurrences(of: "-", with: " ")
             .trimmingCharacters(in: .whitespacesAndNewlines)
 
         let allowed = CharacterSet.alphanumerics.union(.whitespaces)

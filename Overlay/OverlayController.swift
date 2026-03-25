@@ -220,7 +220,10 @@ final class OverlayController {
     }
 
     private func showToolTip(for h: HighlightBox) async {
-        render(hovered: h, tooltip: .loading)
+        // Show cached result immediately; only show loading spinner for fresh lookups
+        let cached = cachedTooltip(for: h)
+        render(hovered: h, tooltip: cached ?? .loading)
+        if cached != nil { return }
         let tooltip = await fetchTooltip(for: h)
         guard layoutMode == .hover, hovered?.id == h.id else { return }
         guard let tooltip else {
@@ -351,6 +354,30 @@ final class OverlayController {
                 }
             }
         }
+    }
+
+    private func cachedTooltip(for h: HighlightBox) -> OverlayTooltip? {
+        let text = h.text
+        let key = lookupKey(for: h)
+
+        if let override = BookAnnotationStore.shared.resolve(term: text, kind: h.kind, sourceTitle: sourceTitle) {
+            if h.kind == .vocab, let definition = override.definition {
+                return .dictionary(term: text, definition: definition)
+            }
+            if h.kind == .reference, let summary = override.summary {
+                return .wiki(WikiResult(status: .ok, requested: text, title: text, extract: summary, pageURL: nil, thumbnailURL: nil, debug: override.debug, score: 1.0))
+            }
+        }
+
+        if h.kind == .vocab, let cached = LookupCache.shared.dictionary(key) {
+            return .dictionary(term: text, definition: cached)
+        }
+
+        if let cached = LookupCache.shared.wikipedia(key) {
+            return cached.status == .ok ? .wiki(cached) : nil
+        }
+
+        return nil
     }
 
     private func fetchTooltip(for h: HighlightBox) async -> OverlayTooltip? {

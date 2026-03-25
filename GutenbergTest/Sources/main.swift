@@ -73,7 +73,16 @@ private func fetchGutenbergInner(bookID: Int, chapterDivIndex: Int?, startAnchor
         if let start = startAnchor {
             let startTag = "id=\"\(start)\""
             guard let startRange = html.range(of: startTag) else { continue }
-            let from = startRange.lowerBound
+            // Walk back to the block-level opening '<' so we don't start mid-element.
+            // Anchors are often inside inline <a> tags nested inside <h2>/<p>, so we
+            // skip past any inline tag we land on to find the real container.
+            let before = html[html.startIndex..<startRange.lowerBound]
+            var from = before.lastIndex(of: "<") ?? startRange.lowerBound
+            let inlineOpenings = ["<a ", "<a\t", "<a\n", "<a>", "<em", "<span", "<strong", "<b ", "<i "]
+            if inlineOpenings.contains(where: { html[from...].hasPrefix($0) }) {
+                let beforeInline = html[html.startIndex..<from]
+                from = beforeInline.lastIndex(of: "<") ?? from
+            }
             let slice: String
             if let end = endAnchor, let endRange = html.range(of: "id=\"\(end)\"", range: from..<html.endIndex) {
                 slice = String(html[from..<endRange.lowerBound])

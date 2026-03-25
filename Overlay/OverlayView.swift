@@ -23,24 +23,29 @@ struct OverlayView: View {
             let size = geo.size
 
             ZStack(alignment: .topLeading) {
-                ForEach(vocab) { h in
-                    let c = color(for: h.text)
-                    Rectangle()
-                        .fill(c.opacity(0.18))
-                        .overlay(Rectangle().stroke(c.opacity(0.95), lineWidth: 2))
-                        .frame(width: h.rect.width, height: h.rect.height)
-                        .position(x: h.rect.midX, y: h.rect.midY)
-                }
+                // Highlight boxes — always non-interactive so mouse events pass through to the page
+                ZStack {
+                    ForEach(vocab) { h in
+                        let c = color(for: h.text)
+                        Rectangle()
+                            .fill(c.opacity(0.18))
+                            .overlay(Rectangle().stroke(c.opacity(0.95), lineWidth: 2))
+                            .frame(width: h.rect.width, height: h.rect.height)
+                            .position(x: h.rect.midX, y: h.rect.midY)
+                    }
 
-                ForEach(refs) { h in
-                    let c = color(for: h.text)
-                    Rectangle()
-                        .fill(c.opacity(0.18))
-                        .overlay(Rectangle().stroke(c.opacity(0.95), lineWidth: 2))
-                        .frame(width: h.rect.width, height: h.rect.height)
-                        .position(x: h.rect.midX, y: h.rect.midY)
+                    ForEach(refs) { h in
+                        let c = color(for: h.text)
+                        Rectangle()
+                            .fill(c.opacity(0.18))
+                            .overlay(Rectangle().stroke(c.opacity(0.95), lineWidth: 2))
+                            .frame(width: h.rect.width, height: h.rect.height)
+                            .position(x: h.rect.midX, y: h.rect.midY)
+                    }
                 }
+                .allowsHitTesting(false)
 
+                // Sidebar rail — interactive when mouse enters the gutter (managed by OverlayController)
                 if layoutMode == .side, !sideAnnotations.isEmpty {
                     SidebarRail(
                         sideAnnotations: sideAnnotations,
@@ -54,11 +59,11 @@ struct OverlayView: View {
 
                 if layoutMode == .hover, let hovered, let tooltip {
                     TooltipCard(hovered: hovered, tooltip: tooltip, overlaySize: size)
+                        .allowsHitTesting(false)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Color.clear)
-            .allowsHitTesting(false)
         }
     }
 
@@ -229,6 +234,18 @@ struct OverlayView: View {
                         .font(.system(size: 12))
                         .foregroundStyle(result.status == .ok ? Color.black.opacity(0.84) : Color.black.opacity(0.58))
                         .lineLimit(bodyLineLimit)
+
+                    if result.status == .ok, let page = result.pageURL, !page.isEmpty, let url = URL(string: page) {
+                        Button {
+                            NSWorkspace.shared.open(url)
+                        } label: {
+                            Text("Open in Wikipedia →")
+                                .font(.system(size: 11))
+                                .foregroundStyle(Color(red: 0.18, green: 0.42, blue: 0.88))
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.top, 2)
+                    }
 
                     if debugModeEnabled {
                         debugInfo(for: result)

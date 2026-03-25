@@ -75,6 +75,7 @@ final class HighlightEngine {
         let maxVocab = 28
         let maxRefs  = 30
         var seenVocabTerms = Set<String>()
+        var seenRefTerms = Set<String>()
 
         struct T {
             let idx: Int
@@ -189,6 +190,38 @@ final class HighlightEngine {
             lines.append(current)
         }
 
+        // Position lookup: t.idx → index in the reading-order ts array, used for context extraction.
+        var idxToTsPos: [Int: Int] = [:]
+        for (pos, t) in ts.enumerated() { idxToTsPos[t.idx] = pos }
+
+        // Returns surrounding context, bounded by sentence endings (.!?) within a max window.
+        // Sentence-scoped context is more coherent for disambiguation than a flat token window.
+        func context(aroundTsPos pos: Int, window: Int = 20) -> (before: String, after: String) {
+            // Scan backwards for the most recent sentence boundary within the window
+            var beforeStart = max(0, pos - window)
+            for p in stride(from: pos - 1, through: max(0, pos - window), by: -1) {
+                let r = ts[p].raw
+                if r.hasSuffix(".") || r.hasSuffix("!") || r.hasSuffix("?") {
+                    beforeStart = p + 1
+                    break
+                }
+            }
+
+            // Scan forwards for the next sentence boundary within the window
+            var afterEnd = min(ts.count, pos + window + 1)
+            for p in (pos + 1)..<min(ts.count, pos + window + 1) {
+                let r = ts[p].raw
+                if r.hasSuffix(".") || r.hasSuffix("!") || r.hasSuffix("?") {
+                    afterEnd = p + 1
+                    break
+                }
+            }
+
+            let before = ts[beforeStart..<pos].map { $0.cleaned }.joined(separator: " ")
+            let after  = ts[(pos + 1)..<afterEnd].map { $0.cleaned }.joined(separator: " ")
+            return (before, after)
+        }
+
         // Track tokens already consumed by phrase refs so we don't also highlight pieces.
         var consumedTokenIdx = Set<Int>()
 
@@ -238,8 +271,12 @@ final class HighlightEngine {
                             guard gapOK(prev: parts.last!, next: u) else { break }
                         }
 
-                        // Accept: Capitalized tokens, plus small connector words inside the phrase
+                        // Accept: Capitalized tokens, plus small connector words inside the phrase.
+                        // Don't extend if the next token is the same word as the last — this
+                        // prevents "Christiania: Christiania" (rhetorical repetition) from being
+                        // merged into a nonsense two-word phrase that consumes both occurrences.
                         if u.startsWithUpper && !isRefNoise(u) {
+                            if u.lower == parts.last?.lower { break }
                             parts.append(u)
                             capitalCount += 1
                             j += 1
@@ -262,9 +299,16 @@ final class HighlightEngine {
                     // Emit phrase only if it has 2+ capitalized tokens (true phrase)
                     if capitalCount >= 2, refs.count < maxRefs {
                         let phrase = parts.map { $0.cleaned }.joined(separator: " ")
+                        if !seenRefTerms.insert(phrase.lowercased()).inserted { i = j; continue }
                         let rect = unionRect(parts.map { $0.rect })
+                        let ctxBefore = parts.first.flatMap { idxToTsPos[$0.idx] }.map {
+                            ts[max(0, $0 - 15)..<$0].map { $0.cleaned }.joined(separator: " ")
+                        } ?? ""
+                        let ctxAfter = parts.last.flatMap { idxToTsPos[$0.idx] }.map {
+                            ts[($0 + 1)..<min(ts.count, $0 + 16)].map { $0.cleaned }.joined(separator: " ")
+                        } ?? ""
 
-                        refs.append(HighlightBox(text: phrase, rect: rect, kind: .reference))
+                        refs.append(HighlightBox(text: phrase, rect: rect, kind: .reference, contextBefore: ctxBefore, contextAfter: ctxAfter))
 
                         for p in parts { consumedTokenIdx.insert(p.idx) }
                         i = j
@@ -290,8 +334,10 @@ final class HighlightEngine {
 
                     if isFirstInLine && !looksNamey { continue }
                     if isLikelyBadSingleReference(t.cleaned) { continue }
+                    if !seenRefTerms.insert(t.lower).inserted { continue }
 
-                    refs.append(HighlightBox(text: t.cleaned, rect: t.rect, kind: .reference))
+                    let (ctxBefore, ctxAfter) = idxToTsPos[t.idx].map { context(aroundTsPos: $0) } ?? ("", "")
+                    refs.append(HighlightBox(text: t.cleaned, rect: t.rect, kind: .reference, contextBefore: ctxBefore, contextAfter: ctxAfter))
                     consumedTokenIdx.insert(t.idx)
                 }
                 if refs.count >= maxRefs { break }
@@ -312,10 +358,12 @@ final class HighlightEngine {
 
                     if let _ = Lookups.definition(for: t.lower) {
                         if t.lower.hasSuffix("ly") && t.cleaned.count <= 7 { continue }
-                        if t.lower.hasSuffix("ing") && t.cleaned.count <= 8 { continue }
+                        if t.lower.hasSuffix("ing") && t.cleaned.count <= 9 { continue }
+                        if (t.lower.hasSuffix("able") || t.lower.hasSuffix("ible")) && t.cleaned.count <= 9 { continue }
                         if !seenVocabTerms.insert(t.lower).inserted { continue }
 
-                        vocab.append(HighlightBox(text: t.cleaned, rect: t.rect, kind: .vocab))
+                        let (ctxBefore, ctxAfter) = idxToTsPos[t.idx].map { context(aroundTsPos: $0) } ?? ("", "")
+                        vocab.append(HighlightBox(text: t.cleaned, rect: t.rect, kind: .vocab, contextBefore: ctxBefore, contextAfter: ctxAfter))
                     }
                 }
                 if vocab.count >= maxVocab { break }

@@ -20,6 +20,10 @@ struct WikiResult: Codable, Sendable, Hashable {
 }
 
 enum Wikipedia {
+    // In-memory negative cache: terms confirmed to have no Wikipedia article are skipped
+    // on subsequent page scans without re-querying. Keyed on normalized term.
+    private nonisolated(unsafe) static var notFoundCache: Set<String> = []
+
     static func summary(_ term: String) async -> String {
         let result = await lookup(term)
         switch result.status {
@@ -40,44 +44,132 @@ enum Wikipedia {
             return WikiResult(status: .error, requested: term, title: nil, extract: "No term.", pageURL: nil, thumbnailURL: nil, debug: nil, score: nil)
         }
 
+        guard looksQueryable(requested) else {
+            return WikiResult(
+                status: .notFound,
+                requested: requested,
+                title: nil,
+                extract: "No Wikipedia page found.",
+                pageURL: nil,
+                thumbnailURL: nil,
+                debug: "query failed OCR quality check",
+                score: nil
+            )
+        }
+
+        // Skip terms already confirmed to have no Wikipedia article
+        let cacheKey = normalize(requested)
+        if notFoundCache.contains(cacheKey) {
+            return WikiResult(status: .notFound, requested: requested, title: nil, extract: "No Wikipedia page found.", pageURL: nil, thumbnailURL: nil, debug: "negative cache hit", score: nil)
+        }
+
+        var hitDisambiguation = false
+        var allBaseNotFound = true
+        var bestDirectScore: Double = 0.0
+        var bestSuppressedResult: WikiResult? = nil
+
         for query in retryQueries(for: requested) {
             if let direct = await fetchSummary(title: query) {
+                if direct.status != .notFound { allBaseNotFound = false }
+
                 if let accepted = verify(result: direct, requested: requested, contextBefore: contextBefore, contextAfter: contextAfter) {
                     return accepted
                 }
 
-                if direct.status == .disambiguation || direct.status == .notFound {
-                    let resolved = await resolveViaSearch(query, requested: requested, contextBefore: contextBefore, contextAfter: contextAfter)
+                if direct.status == .disambiguation {
+                    hitDisambiguation = true
+                    let searchTerm = contextAugmentedQuery(query, contextBefore: contextBefore, contextAfter: contextAfter) ?? query
+                    let resolved = await resolveViaSearch(searchTerm, requested: requested, contextBefore: contextBefore, contextAfter: contextAfter)
                     if let resolved, let accepted = verify(result: resolved, requested: requested, contextBefore: contextBefore, contextAfter: contextAfter) {
                         return accepted
                     }
-                    if let resolved, resolved.status == .ok {
-                        return suppress(result: resolved, reason: "search result scored too low")
-                    }
+                    // Don't suppress here — fall through so the outer handler can retry
+                    // with a plain search, which is more reliable for single proper nouns
+                    // whose literary context words mislead the disambiguation search.
+                } else if direct.status == .notFound {
+                    // 404: not a Wikipedia article; skip to next query variant
+                    continue
                 } else if direct.status == .ok {
-                    return suppress(result: direct, reason: "direct result scored too low")
+                    // Don't exit early — track the best low-scoring result and keep trying.
+                    // Context expansion below may find a better match.
+                    let s = scoreCandidate(requested: requested, title: direct.title, snippet: nil, extract: direct.extract, contextBefore: contextBefore, contextAfter: contextAfter, status: direct.status)
+                    if s > bestDirectScore {
+                        bestDirectScore = s
+                        bestSuppressedResult = suppress(result: direct, reason: "direct result scored too low")
+                    }
                 }
             }
         }
 
-        if let resolved = await resolveViaSearch(requested, requested: requested, contextBefore: contextBefore, contextAfter: contextAfter) {
-            if let accepted = verify(result: resolved, requested: requested, contextBefore: contextBefore, contextAfter: contextAfter) {
-                return accepted
+        // If all base variants 404'd or scored poorly, try phrase expansion using context
+        // neighbors. E.g. "York" → 404 → try "New York"; "Indies" → 404 → try "West Indies".
+        if allBaseNotFound || bestDirectScore < 0.40 {
+            for query in contextExpandedQueries(for: requested, contextBefore: contextBefore, contextAfter: contextAfter) {
+                if let direct = await fetchSummary(title: query) {
+                    if let accepted = verify(result: direct, requested: requested, contextBefore: contextBefore, contextAfter: contextAfter) {
+                        return accepted
+                    }
+                    if direct.status == .disambiguation {
+                        hitDisambiguation = true
+                        let searchTerm = contextAugmentedQuery(query, contextBefore: contextBefore, contextAfter: contextAfter) ?? query
+                        if let resolved = await resolveViaSearch(searchTerm, requested: requested, contextBefore: contextBefore, contextAfter: contextAfter),
+                           let accepted = verify(result: resolved, requested: requested, contextBefore: contextBefore, contextAfter: contextAfter) {
+                            return accepted
+                        }
+                    }
+                }
             }
-            if resolved.status == .ok {
-                return suppress(result: resolved, reason: "fallback search result scored too low")
-            }
-            return resolved
         }
 
-        return WikiResult(
+        // Silent-redirect recovery: Wikipedia returned a 200 OK but the title has no word
+        // overlap with the requested term, meaning it silently redirected elsewhere (e.g.
+        // "Christiania" → Oslo). The short REST API extract rarely contains the original
+        // name, so isAliasMatch never fires from the direct lookup. A plain search for the
+        // original term returns snippets that DO mention it, making alias scoring work.
+        let isSingleProperNoun = requested.first?.isUppercase == true && !requested.contains(" ")
+        let gotSilentRedirect = !allBaseNotFound && bestDirectScore < 0.30 && isSingleProperNoun
+
+        // Fall back to search if disambiguation was detected, or if a silent redirect was
+        // detected. A pure 404 with no redirect still skips search to avoid junk.
+        if hitDisambiguation || gotSilentRedirect {
+            // For single proper nouns, use a plain search regardless of whether we hit
+            // disambiguation or a silent redirect. Literary context words (e.g. "wandered",
+            // "starved") pull in thematically similar but wrong articles (Norwegian fairy tales,
+            // historical figures). Wikipedia's own relevance ranking on the bare term works better.
+            let searchTerm = isSingleProperNoun
+                ? requested
+                : (contextAugmentedQuery(requested, contextBefore: contextBefore, contextAfter: contextAfter) ?? requested)
+            if let resolved = await resolveViaSearch(searchTerm, requested: requested, contextBefore: contextBefore, contextAfter: contextAfter) {
+                // resolveViaSearch scores candidates using the search result title (e.g. "Christiania"),
+                // but stores the fetched summary result whose title may be the redirect target (e.g. "Oslo").
+                // Re-running verify() here would re-score against the redirect title and fail. Trust the
+                // score resolveViaSearch already set if it meets the acceptance threshold.
+                if resolved.status == .ok, let s = resolved.score, s >= 0.62 {
+                    return resolved
+                }
+                if let accepted = verify(result: resolved, requested: requested, contextBefore: contextBefore, contextAfter: contextAfter) {
+                    return accepted
+                }
+                if resolved.status == .ok {
+                    return suppress(result: resolved, reason: "fallback search result scored too low")
+                }
+                return resolved
+            }
+        }
+
+        // Cache terms that had no Wikipedia article at any variant so we don't re-query them
+        if allBaseNotFound {
+            notFoundCache.insert(cacheKey)
+        }
+
+        return bestSuppressedResult ?? WikiResult(
             status: .notFound,
             requested: requested,
             title: nil,
             extract: "No Wikipedia page found.",
             pageURL: nil,
             thumbnailURL: nil,
-            debug: "fallback search returned nil",
+            debug: "all queries failed",
             score: nil
         )
     }
@@ -124,7 +216,10 @@ enum Wikipedia {
             let pageURL = desktop?["page"] as? String
             let thumb = obj["thumbnail"] as? [String: Any]
             let thumbURL = thumb?["source"] as? String
-            let isDisamb = (pageType == "disambiguation") || ((extract ?? "").contains("may refer to"))
+            let extractLower = (extract ?? "").lowercased()
+            let isDisamb = (pageType == "disambiguation")
+                || extractLower.contains("may refer to")
+                || extractLower.contains("can refer to")
 
             return WikiResult(
                 status: isDisamb ? .disambiguation : .ok,
@@ -224,7 +319,14 @@ enum Wikipedia {
                 return WikiResult(status: .error, requested: q, title: nil, extract: "Failed to resolve Wikipedia page.", pageURL: nil, thumbnailURL: nil, debug: "search resolved no summary", score: nil)
             }
 
-            let sorted = resolved.sorted { lhs, rhs in lhs.1 > rhs.1 }
+            // Sort by score descending; use original Wikipedia search rank as tiebreaker
+            // so that when multiple candidates score equally (e.g. two alias-match results),
+            // the one Wikipedia ranked more relevant wins.
+            let indexedResolved = resolved.enumerated().map { ($0.offset, $0.element) }
+            let sorted = indexedResolved.sorted { lhs, rhs in
+                if abs(lhs.1.1 - rhs.1.1) < 0.01 { return lhs.0 < rhs.0 }
+                return lhs.1.1 > rhs.1.1
+            }.map { $0.1 }
             let best = sorted[0].0
             let margin = sorted.count > 1 ? sorted[0].1 - sorted[1].1 : sorted[0].1
 
@@ -236,7 +338,11 @@ enum Wikipedia {
                 return suppress(result: best, reason: "best search candidate below threshold")
             }
 
-            guard margin >= 0.08 else {
+            // Skip margin check for very high-confidence results — a score >= 0.85 means the
+            // requested term was found verbatim in the article (alias match), which is already
+            // strong evidence. Enforcing margin here just suppresses valid tied alias results.
+            let highConfidence = (best.score ?? 0) >= 0.85
+            guard margin >= 0.08 || highConfidence else {
                 return suppress(result: best, reason: "search candidates too close")
             }
 
@@ -329,14 +435,68 @@ enum Wikipedia {
         let normalized = requested
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .trimmingCharacters(in: .punctuationCharacters)
-        let strippedPossessive = stripPossessive(normalized)
+        let repaired = repairHyphenation(normalized)
+        let strippedPossessive = stripPossessive(repaired)
         let singular = singularize(strippedPossessive)
 
         var seen = Set<String>()
-        return [requested, normalized, strippedPossessive, singular]
+        return [requested, normalized, repaired, strippedPossessive, singular]
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
             .filter { seen.insert(normalize($0)).inserted }
+    }
+
+    // Generates phrase candidates by combining the term with capitalized neighbors from
+    // context, for use when base single-word variants all 404 or score poorly.
+    // E.g. term="York", contextBefore="…in New…" → ["New York"]
+    //      term="Wales", contextBefore="…New South…" → ["South Wales", "New South Wales"]
+    private static func contextExpandedQueries(
+        for term: String,
+        contextBefore: String?,
+        contextAfter: String?
+    ) -> [String] {
+        // Only expand single capitalized words — phrases already have their neighbors baked in
+        guard !term.contains(" "), term.first?.isUppercase == true else { return [] }
+
+        let beforeWords = (contextBefore ?? "")
+            .split(separator: " ").map(String.init)
+            .map { $0.trimmingCharacters(in: .punctuationCharacters) }
+            .filter { !$0.isEmpty && $0.count > 1 }
+
+        let afterWords = (contextAfter ?? "")
+            .split(separator: " ").map(String.init)
+            .map { $0.trimmingCharacters(in: .punctuationCharacters) }
+            .filter { !$0.isEmpty && $0.count > 1 }
+
+        var seen = Set<String>()
+        var candidates: [String] = []
+
+        func add(_ s: String) {
+            let t = s.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !t.isEmpty, seen.insert(t.lowercased()).inserted else { return }
+            candidates.append(t)
+        }
+
+        // One word before + term (e.g. "New York", "West Indies")
+        if let prev = beforeWords.last, prev.first?.isUppercase == true {
+            add("\(prev) \(term)")
+        }
+
+        // Term + one word after (e.g. "Cape Town")
+        if let next = afterWords.first, next.first?.isUppercase == true {
+            add("\(term) \(next)")
+        }
+
+        // Two words before + term (e.g. "New South Wales")
+        if beforeWords.count >= 2 {
+            let p2 = beforeWords[beforeWords.count - 2]
+            let p1 = beforeWords[beforeWords.count - 1]
+            if p2.first?.isUppercase == true, p1.first?.isUppercase == true {
+                add("\(p2) \(p1) \(term)")
+            }
+        }
+
+        return candidates
     }
 
     private static func scoreCandidate(
@@ -364,7 +524,6 @@ enum Wikipedia {
         }
 
         score += min(0.18, Double(commonPrefixLen(normalizedTitle, req)) * 0.03)
-        score -= min(0.12, Double(abs(normalizedTitle.count - req.count)) * 0.01)
 
         let reqWords = Set(req.split(separator: " ").map(String.init))
         let titleWords = Set(normalizedTitle.split(separator: " ").map(String.init))
@@ -373,23 +532,77 @@ enum Wikipedia {
         let summaryOverlap = reqWords.intersection(summaryWords).count
         let requestedHasUppercase = requested.contains { $0.isUppercase }
 
+        // Alias/redirect detection: the queried term appears verbatim in the article body
+        // despite no title overlap. Handles historical name redirects (e.g. "Christiania" → Oslo).
+        // We check both the normalized word set AND the raw extract tokenized on non-alphanumeric
+        // boundaries, so "Christiania," or "Christiania." are still matched.
+        let rawBody = [(snippet ?? ""), (extract ?? "")].joined(separator: " ").lowercased()
+        let rawBodyWords = Set(rawBody.components(separatedBy: CharacterSet.alphanumerics.inverted).filter { !$0.isEmpty })
+        let isAliasMatch = requestedHasUppercase
+            && !req.contains(" ")
+            && !req.isEmpty
+            && titleOverlap == 0
+            && (summaryWords.contains(req) || rawBodyWords.contains(req))
+
+        // Length mismatch penalty — skipped for alias matches since title divergence is expected
+        if !isAliasMatch {
+            score -= min(0.12, Double(abs(normalizedTitle.count - req.count)) * 0.01)
+        }
+
         if !reqWords.isEmpty {
             score += Double(titleOverlap) * 0.12
             score += Double(summaryOverlap) * 0.05
         }
 
         if titleOverlap == 0, !normalizedTitle.contains(req), !req.contains(normalizedTitle) {
-            score -= 0.35
+            if isAliasMatch {
+                score += 0.76  // strong redirect signal — term is in the article body
+            } else {
+                score -= 0.35
+            }
         }
 
         if requestedHasUppercase, reqWords.count == 1, titleOverlap > 0, titleWords.count >= 2 {
             score += 0.24
         }
 
+        // Context scoring: strip stop words so common words don't inflate overlap.
         if !context.isEmpty {
-            let contextWords = Set(context.split(separator: " ").map(String.init))
-            score += min(0.20, Double(contextWords.intersection(summaryWords).count) * 0.05)
-            score += min(0.10, Double(contextWords.intersection(titleWords).count) * 0.05)
+            let rawContextWords = Set(context.split(separator: " ").map(String.init))
+            let filteredContext = rawContextWords.subtracting(stopWords)
+            let filteredSummary = summaryWords.subtracting(stopWords)
+            let effectiveContext = filteredContext.isEmpty ? rawContextWords : filteredContext
+            let effectiveSummary = filteredContext.isEmpty ? summaryWords : filteredSummary
+            score += min(0.28, Double(effectiveContext.intersection(effectiveSummary).count) * 0.07)
+            score += min(0.14, Double(effectiveContext.intersection(titleWords).count) * 0.07)
+        }
+
+        // Parenthetical disambiguation scoring: "Mercury (planet)" vs "Mercury (mythology)".
+        // A matching parenthetical is strong evidence we have the right sense.
+        if let paren = extractParenthetical(normalizedTitle), !context.isEmpty {
+            let parenWords = Set(normalize(paren).split(separator: " ").map(String.init)).subtracting(stopWords)
+            let contextWords = Set(context.split(separator: " ").map(String.init)).subtracting(stopWords)
+            if !parenWords.isEmpty && !contextWords.isEmpty {
+                if !parenWords.intersection(contextWords).isEmpty {
+                    score += 0.28
+                } else {
+                    score -= 0.12
+                }
+            }
+        }
+
+        // "List of X" articles are never useful for contextual lookups.
+        if normalizedTitle.hasPrefix("list of") {
+            score -= 0.40
+        }
+
+        // "Named-after" penalty: single-word query where the title starts with the exact
+        // term but has additional words (e.g. "Christiania Spigerverk" for "Christiania").
+        // These articles are named after the place/person, not the canonical article about it.
+        if !req.contains(" "), !req.isEmpty,
+           normalizedTitle.hasPrefix(req + " "),
+           titleWords.count >= 2 {
+            score -= 0.18
         }
 
         let loweredSummary = summary.lowercased()
@@ -436,6 +649,55 @@ enum Wikipedia {
         }
 
         return false
+    }
+
+    private static let stopWords: Set<String> = [
+        "the", "a", "an", "and", "or", "of", "in", "on", "at", "to", "for",
+        "is", "was", "are", "were", "be", "been", "has", "have", "had",
+        "it", "its", "this", "that", "these", "those", "with", "by", "from",
+        "as", "he", "she", "they", "his", "her", "their", "not", "but",
+        "which", "who", "what", "when", "where", "how", "also", "such"
+    ]
+
+    // Extracts the parenthetical disambiguator from a title, e.g. "Mercury (planet)" → "planet".
+    private static func extractParenthetical(_ s: String) -> String? {
+        guard let open = s.lastIndex(of: "("),
+              let close = s.lastIndex(of: ")"),
+              open < close else { return nil }
+        let inner = String(s[s.index(after: open)..<close]).trimmingCharacters(in: .whitespaces)
+        return inner.isEmpty ? nil : inner
+    }
+
+    // Returns a search query enriched with key context words, used when resolving disambiguation.
+    private static func contextAugmentedQuery(_ term: String, contextBefore: String?, contextAfter: String?) -> String? {
+        let combined = [contextBefore, contextAfter].compactMap { $0 }.joined(separator: " ")
+        guard !combined.isEmpty else { return nil }
+        let meaningful = normalize(combined)
+            .split(separator: " ").map(String.init)
+            .filter { !stopWords.contains($0) && $0.count > 3 }
+        guard !meaningful.isEmpty else { return nil }
+        return "\(term) \(meaningful.prefix(2).joined(separator: " "))"
+    }
+
+    // Returns false for strings that are clearly OCR garbage and not worth querying.
+    private static func looksQueryable(_ s: String) -> Bool {
+        let letters = s.filter { $0.isLetter }
+        guard letters.count >= 2 else { return false }
+        let nonWhitespace = s.filter { !$0.isWhitespace }
+        guard !nonWhitespace.isEmpty else { return false }
+        // At least half of non-whitespace chars must be letters (filters "123 /B\\ foo")
+        guard Double(letters.count) / Double(nonWhitespace.count) >= 0.5 else { return false }
+        // Too many words → OCR grabbed running text, not a lookup term
+        guard s.split(separator: " ").count <= 7 else { return false }
+        return true
+    }
+
+    // Repairs common OCR line-break hyphenation artifacts before querying.
+    // E.g. "inter-\nnational" → "international", soft hyphens removed.
+    private static func repairHyphenation(_ s: String) -> String {
+        var r = s.replacingOccurrences(of: "\u{00AD}", with: "") // soft hyphen
+        r = r.replacingOccurrences(of: #"-[ \t\n\r]+"#, with: "", options: .regularExpression)
+        return r.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private static func normalize(_ s: String) -> String {

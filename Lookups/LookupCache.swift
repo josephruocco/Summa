@@ -3,7 +3,11 @@ import Foundation
 final class LookupCache {
     static let shared = LookupCache()
 
+    // Bump this when scoring logic changes to automatically invalidate stale cached results.
+    private static let cacheVersion = 5
+
     private struct CacheStore: Codable {
+        var version: Int = 0
         var dict: [String: String] = [:]
         var wiki: [String: WikiResult] = [:]
     }
@@ -37,7 +41,7 @@ final class LookupCache {
     func setDictionary(_ key: String, _ val: String) {
         lock.lock()
         dict[key] = val
-        let snapshot = CacheStore(dict: dict, wiki: wiki)
+        let snapshot = CacheStore(version: Self.cacheVersion, dict: dict, wiki: wiki)
         lock.unlock()
         persist(snapshot)
     }
@@ -50,7 +54,7 @@ final class LookupCache {
     func setWikipedia(_ key: String, _ val: WikiResult) {
         lock.lock()
         wiki[key] = val
-        let snapshot = CacheStore(dict: dict, wiki: wiki)
+        let snapshot = CacheStore(version: Self.cacheVersion, dict: dict, wiki: wiki)
         lock.unlock()
         persist(snapshot)
 
@@ -72,6 +76,8 @@ final class LookupCache {
         guard let cacheURL else { return }
         guard let data = try? Data(contentsOf: cacheURL) else { return }
         guard let decoded = try? JSONDecoder().decode(CacheStore.self, from: data) else { return }
+        // Discard cache if the scoring version has changed
+        guard decoded.version == Self.cacheVersion else { return }
 
         lock.lock()
         dict = decoded.dict

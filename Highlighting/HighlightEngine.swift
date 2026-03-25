@@ -270,8 +270,12 @@ final class HighlightEngine {
                             guard gapOK(prev: parts.last!, next: u) else { break }
                         }
 
-                        // Accept: Capitalized tokens, plus small connector words inside the phrase
+                        // Accept: Capitalized tokens, plus small connector words inside the phrase.
+                        // Don't extend if the next token is the same word as the last — this
+                        // prevents "Christiania: Christiania" (rhetorical repetition) from being
+                        // merged into a nonsense two-word phrase that consumes both occurrences.
                         if u.startsWithUpper && !isRefNoise(u) {
+                            if u.lower == parts.last?.lower { break }
                             parts.append(u)
                             capitalCount += 1
                             j += 1

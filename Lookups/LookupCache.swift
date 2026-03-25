@@ -4,7 +4,7 @@ final class LookupCache {
     static let shared = LookupCache()
 
     // Bump this when scoring logic changes to automatically invalidate stale cached results.
-    private static let cacheVersion = 3
+    private static let cacheVersion = 4
 
     private struct CacheStore: Codable {
         var version: Int = 0

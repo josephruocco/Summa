@@ -136,6 +136,13 @@ enum Wikipedia {
                 ? (contextAugmentedQuery(requested, contextBefore: contextBefore, contextAfter: contextAfter) ?? requested)
                 : requested  // plain search for redirect case — snippet will mention the original term
             if let resolved = await resolveViaSearch(searchTerm, requested: requested, contextBefore: contextBefore, contextAfter: contextAfter) {
+                // resolveViaSearch scores candidates using the search result title (e.g. "Christiania"),
+                // but stores the fetched summary result whose title may be the redirect target (e.g. "Oslo").
+                // Re-running verify() here would re-score against the redirect title and fail. Trust the
+                // score resolveViaSearch already set if it meets the acceptance threshold.
+                if resolved.status == .ok, let s = resolved.score, s >= 0.62 {
+                    return resolved
+                }
                 if let accepted = verify(result: resolved, requested: requested, contextBefore: contextBefore, contextAfter: contextAfter) {
                     return accepted
                 }

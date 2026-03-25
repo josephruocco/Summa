@@ -44,12 +44,19 @@ final class LookupCache {
 
     func wikipedia(_ key: String) -> WikiResult? {
         lock.lock(); defer { lock.unlock() }
-        return wiki[key]
+        // Only serve cached results that succeeded — suppressed/notFound results
+        // are not cached so improved scoring gets a fresh attempt next time.
+        guard let result = wiki[key], result.status == .ok else { return nil }
+        return result
     }
 
     func setWikipedia(_ key: String, _ val: WikiResult) {
         lock.lock()
-        wiki[key] = val
+        // Only persist successful lookups; non-ok results are logged but not cached
+        // so scoring improvements can take effect without clearing the cache manually.
+        if val.status == .ok {
+            wiki[key] = val
+        }
         let snapshot = CacheStore(dict: dict, wiki: wiki)
         lock.unlock()
         persist(snapshot)

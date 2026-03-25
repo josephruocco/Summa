@@ -315,7 +315,14 @@ enum Wikipedia {
                 return WikiResult(status: .error, requested: q, title: nil, extract: "Failed to resolve Wikipedia page.", pageURL: nil, thumbnailURL: nil, debug: "search resolved no summary", score: nil)
             }
 
-            let sorted = resolved.sorted { lhs, rhs in lhs.1 > rhs.1 }
+            // Sort by score descending; use original Wikipedia search rank as tiebreaker
+            // so that when multiple candidates score equally (e.g. two alias-match results),
+            // the one Wikipedia ranked more relevant wins.
+            let indexedResolved = resolved.enumerated().map { ($0.offset, $0.element) }
+            let sorted = indexedResolved.sorted { lhs, rhs in
+                if abs(lhs.1.1 - rhs.1.1) < 0.01 { return lhs.0 < rhs.0 }
+                return lhs.1.1 > rhs.1.1
+            }.map { $0.1 }
             let best = sorted[0].0
             let margin = sorted.count > 1 ? sorted[0].1 - sorted[1].1 : sorted[0].1
 
@@ -327,7 +334,11 @@ enum Wikipedia {
                 return suppress(result: best, reason: "best search candidate below threshold")
             }
 
-            guard margin >= 0.08 else {
+            // Skip margin check for very high-confidence results — a score >= 0.85 means the
+            // requested term was found verbatim in the article (alias match), which is already
+            // strong evidence. Enforcing margin here just suppresses valid tied alias results.
+            let highConfidence = (best.score ?? 0) >= 0.85
+            guard margin >= 0.08 || highConfidence else {
                 return suppress(result: best, reason: "search candidates too close")
             }
 

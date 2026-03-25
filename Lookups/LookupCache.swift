@@ -3,7 +3,11 @@ import Foundation
 final class LookupCache {
     static let shared = LookupCache()
 
+    // Bump this when scoring logic changes to automatically invalidate stale cached results.
+    private static let cacheVersion = 3
+
     private struct CacheStore: Codable {
+        var version: Int = 0
         var dict: [String: String] = [:]
         var wiki: [String: WikiResult] = [:]
     }
@@ -37,27 +41,20 @@ final class LookupCache {
     func setDictionary(_ key: String, _ val: String) {
         lock.lock()
         dict[key] = val
-        let snapshot = CacheStore(dict: dict, wiki: wiki)
+        let snapshot = CacheStore(version: Self.cacheVersion, dict: dict, wiki: wiki)
         lock.unlock()
         persist(snapshot)
     }
 
     func wikipedia(_ key: String) -> WikiResult? {
         lock.lock(); defer { lock.unlock() }
-        // Only serve cached results that succeeded — suppressed/notFound results
-        // are not cached so improved scoring gets a fresh attempt next time.
-        guard let result = wiki[key], result.status == .ok else { return nil }
-        return result
+        return wiki[key]
     }
 
     func setWikipedia(_ key: String, _ val: WikiResult) {
         lock.lock()
-        // Only persist successful lookups; non-ok results are logged but not cached
-        // so scoring improvements can take effect without clearing the cache manually.
-        if val.status == .ok {
-            wiki[key] = val
-        }
-        let snapshot = CacheStore(dict: dict, wiki: wiki)
+        wiki[key] = val
+        let snapshot = CacheStore(version: Self.cacheVersion, dict: dict, wiki: wiki)
         lock.unlock()
         persist(snapshot)
 
@@ -79,6 +76,8 @@ final class LookupCache {
         guard let cacheURL else { return }
         guard let data = try? Data(contentsOf: cacheURL) else { return }
         guard let decoded = try? JSONDecoder().decode(CacheStore.self, from: data) else { return }
+        // Discard cache if the scoring version has changed
+        guard decoded.version == Self.cacheVersion else { return }
 
         lock.lock()
         dict = decoded.dict

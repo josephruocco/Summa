@@ -75,6 +75,7 @@ final class HighlightEngine {
         let maxVocab = 28
         let maxRefs  = 30
         var seenVocabTerms = Set<String>()
+        var seenRefTerms = Set<String>()
 
         struct T {
             let idx: Int
@@ -298,6 +299,7 @@ final class HighlightEngine {
                     // Emit phrase only if it has 2+ capitalized tokens (true phrase)
                     if capitalCount >= 2, refs.count < maxRefs {
                         let phrase = parts.map { $0.cleaned }.joined(separator: " ")
+                        if !seenRefTerms.insert(phrase.lowercased()).inserted { i = j; continue }
                         let rect = unionRect(parts.map { $0.rect })
                         let ctxBefore = parts.first.flatMap { idxToTsPos[$0.idx] }.map {
                             ts[max(0, $0 - 15)..<$0].map { $0.cleaned }.joined(separator: " ")
@@ -332,6 +334,7 @@ final class HighlightEngine {
 
                     if isFirstInLine && !looksNamey { continue }
                     if isLikelyBadSingleReference(t.cleaned) { continue }
+                    if !seenRefTerms.insert(t.lower).inserted { continue }
 
                     let (ctxBefore, ctxAfter) = idxToTsPos[t.idx].map { context(aroundTsPos: $0) } ?? ("", "")
                     refs.append(HighlightBox(text: t.cleaned, rect: t.rect, kind: .reference, contextBefore: ctxBefore, contextAfter: ctxAfter))

@@ -596,6 +596,15 @@ enum Wikipedia {
             score -= 0.40
         }
 
+        // "Named-after" penalty: single-word query where the title starts with the exact
+        // term but has additional words (e.g. "Christiania Spigerverk" for "Christiania").
+        // These articles are named after the place/person, not the canonical article about it.
+        if !req.contains(" "), !req.isEmpty,
+           normalizedTitle.hasPrefix(req + " "),
+           titleWords.count >= 2 {
+            score -= 0.18
+        }
+
         let loweredSummary = summary.lowercased()
         if loweredSummary.contains("may refer to") || loweredSummary.contains("can refer to") {
             score -= 0.45

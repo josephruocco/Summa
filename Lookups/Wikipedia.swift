@@ -20,6 +20,10 @@ struct WikiResult: Codable, Sendable, Hashable {
 }
 
 enum Wikipedia {
+    // In-memory negative cache: terms confirmed to have no Wikipedia article are skipped
+    // on subsequent page scans without re-querying. Keyed on normalized term.
+    private nonisolated(unsafe) static var notFoundCache: Set<String> = []
+
     static func summary(_ term: String) async -> String {
         let result = await lookup(term)
         switch result.status {
@@ -53,9 +57,21 @@ enum Wikipedia {
             )
         }
 
+        // Skip terms already confirmed to have no Wikipedia article
+        let cacheKey = normalize(requested)
+        if notFoundCache.contains(cacheKey) {
+            return WikiResult(status: .notFound, requested: requested, title: nil, extract: "No Wikipedia page found.", pageURL: nil, thumbnailURL: nil, debug: "negative cache hit", score: nil)
+        }
+
         var hitDisambiguation = false
+        var allBaseNotFound = true
+        var bestDirectScore: Double = 0.0
+        var bestSuppressedResult: WikiResult? = nil
+
         for query in retryQueries(for: requested) {
             if let direct = await fetchSummary(title: query) {
+                if direct.status != .notFound { allBaseNotFound = false }
+
                 if let accepted = verify(result: direct, requested: requested, contextBefore: contextBefore, contextAfter: contextAfter) {
                     return accepted
                 }
@@ -71,10 +87,36 @@ enum Wikipedia {
                         return suppress(result: resolved, reason: "search result scored too low")
                     }
                 } else if direct.status == .notFound {
-                    // 404: not a Wikipedia article; skip search and try next query variant.
+                    // 404: not a Wikipedia article; skip to next query variant
                     continue
                 } else if direct.status == .ok {
-                    return suppress(result: direct, reason: "direct result scored too low")
+                    // Don't exit early — track the best low-scoring result and keep trying.
+                    // Context expansion below may find a better match.
+                    let s = scoreCandidate(requested: requested, title: direct.title, snippet: nil, extract: direct.extract, contextBefore: contextBefore, contextAfter: contextAfter, status: direct.status)
+                    if s > bestDirectScore {
+                        bestDirectScore = s
+                        bestSuppressedResult = suppress(result: direct, reason: "direct result scored too low")
+                    }
+                }
+            }
+        }
+
+        // If all base variants 404'd or scored poorly, try phrase expansion using context
+        // neighbors. E.g. "York" → 404 → try "New York"; "Indies" → 404 → try "West Indies".
+        if allBaseNotFound || bestDirectScore < 0.40 {
+            for query in contextExpandedQueries(for: requested, contextBefore: contextBefore, contextAfter: contextAfter) {
+                if let direct = await fetchSummary(title: query) {
+                    if let accepted = verify(result: direct, requested: requested, contextBefore: contextBefore, contextAfter: contextAfter) {
+                        return accepted
+                    }
+                    if direct.status == .disambiguation {
+                        hitDisambiguation = true
+                        let searchTerm = contextAugmentedQuery(query, contextBefore: contextBefore, contextAfter: contextAfter) ?? query
+                        if let resolved = await resolveViaSearch(searchTerm, requested: requested, contextBefore: contextBefore, contextAfter: contextAfter),
+                           let accepted = verify(result: resolved, requested: requested, contextBefore: contextBefore, contextAfter: contextAfter) {
+                            return accepted
+                        }
+                    }
                 }
             }
         }
@@ -93,14 +135,19 @@ enum Wikipedia {
             }
         }
 
-        return WikiResult(
+        // Cache terms that had no Wikipedia article at any variant so we don't re-query them
+        if allBaseNotFound {
+            notFoundCache.insert(cacheKey)
+        }
+
+        return bestSuppressedResult ?? WikiResult(
             status: .notFound,
             requested: requested,
             title: nil,
             extract: "No Wikipedia page found.",
             pageURL: nil,
             thumbnailURL: nil,
-            debug: "fallback search returned nil",
+            debug: "all queries failed",
             score: nil
         )
     }
@@ -364,6 +411,59 @@ enum Wikipedia {
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
             .filter { seen.insert(normalize($0)).inserted }
+    }
+
+    // Generates phrase candidates by combining the term with capitalized neighbors from
+    // context, for use when base single-word variants all 404 or score poorly.
+    // E.g. term="York", contextBefore="…in New…" → ["New York"]
+    //      term="Wales", contextBefore="…New South…" → ["South Wales", "New South Wales"]
+    private static func contextExpandedQueries(
+        for term: String,
+        contextBefore: String?,
+        contextAfter: String?
+    ) -> [String] {
+        // Only expand single capitalized words — phrases already have their neighbors baked in
+        guard !term.contains(" "), term.first?.isUppercase == true else { return [] }
+
+        let beforeWords = (contextBefore ?? "")
+            .split(separator: " ").map(String.init)
+            .map { $0.trimmingCharacters(in: .punctuationCharacters) }
+            .filter { !$0.isEmpty && $0.count > 1 }
+
+        let afterWords = (contextAfter ?? "")
+            .split(separator: " ").map(String.init)
+            .map { $0.trimmingCharacters(in: .punctuationCharacters) }
+            .filter { !$0.isEmpty && $0.count > 1 }
+
+        var seen = Set<String>()
+        var candidates: [String] = []
+
+        func add(_ s: String) {
+            let t = s.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !t.isEmpty, seen.insert(t.lowercased()).inserted else { return }
+            candidates.append(t)
+        }
+
+        // One word before + term (e.g. "New York", "West Indies")
+        if let prev = beforeWords.last, prev.first?.isUppercase == true {
+            add("\(prev) \(term)")
+        }
+
+        // Term + one word after (e.g. "Cape Town")
+        if let next = afterWords.first, next.first?.isUppercase == true {
+            add("\(term) \(next)")
+        }
+
+        // Two words before + term (e.g. "New South Wales")
+        if beforeWords.count >= 2 {
+            let p2 = beforeWords[beforeWords.count - 2]
+            let p1 = beforeWords[beforeWords.count - 1]
+            if p2.first?.isUppercase == true, p1.first?.isUppercase == true {
+                add("\(p2) \(p1) \(term)")
+            }
+        }
+
+        return candidates
     }
 
     private static func scoreCandidate(

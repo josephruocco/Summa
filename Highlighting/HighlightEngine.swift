@@ -193,10 +193,31 @@ final class HighlightEngine {
         var idxToTsPos: [Int: Int] = [:]
         for (pos, t) in ts.enumerated() { idxToTsPos[t.idx] = pos }
 
-        // Returns the N tokens before and after a position in ts as context strings.
-        func context(aroundTsPos pos: Int, window: Int = 15) -> (before: String, after: String) {
-            let before = ts[max(0, pos - window)..<pos].map { $0.cleaned }.joined(separator: " ")
-            let after  = ts[(pos + 1)..<min(ts.count, pos + window + 1)].map { $0.cleaned }.joined(separator: " ")
+        // Returns surrounding context, bounded by sentence endings (.!?) within a max window.
+        // Sentence-scoped context is more coherent for disambiguation than a flat token window.
+        func context(aroundTsPos pos: Int, window: Int = 20) -> (before: String, after: String) {
+            // Scan backwards for the most recent sentence boundary within the window
+            var beforeStart = max(0, pos - window)
+            for p in stride(from: pos - 1, through: max(0, pos - window), by: -1) {
+                let r = ts[p].raw
+                if r.hasSuffix(".") || r.hasSuffix("!") || r.hasSuffix("?") {
+                    beforeStart = p + 1
+                    break
+                }
+            }
+
+            // Scan forwards for the next sentence boundary within the window
+            var afterEnd = min(ts.count, pos + window + 1)
+            for p in (pos + 1)..<min(ts.count, pos + window + 1) {
+                let r = ts[p].raw
+                if r.hasSuffix(".") || r.hasSuffix("!") || r.hasSuffix("?") {
+                    afterEnd = p + 1
+                    break
+                }
+            }
+
+            let before = ts[beforeStart..<pos].map { $0.cleaned }.joined(separator: " ")
+            let after  = ts[(pos + 1)..<afterEnd].map { $0.cleaned }.joined(separator: " ")
             return (before, after)
         }
 

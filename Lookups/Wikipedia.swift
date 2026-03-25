@@ -83,9 +83,9 @@ enum Wikipedia {
                     if let resolved, let accepted = verify(result: resolved, requested: requested, contextBefore: contextBefore, contextAfter: contextAfter) {
                         return accepted
                     }
-                    if let resolved, resolved.status == .ok {
-                        return suppress(result: resolved, reason: "search result scored too low")
-                    }
+                    // Don't suppress here — fall through so the outer handler can retry
+                    // with a plain search, which is more reliable for single proper nouns
+                    // whose literary context words mislead the disambiguation search.
                 } else if direct.status == .notFound {
                     // 404: not a Wikipedia article; skip to next query variant
                     continue
@@ -132,9 +132,13 @@ enum Wikipedia {
         // Fall back to search if disambiguation was detected, or if a silent redirect was
         // detected. A pure 404 with no redirect still skips search to avoid junk.
         if hitDisambiguation || gotSilentRedirect {
-            let searchTerm = hitDisambiguation
-                ? (contextAugmentedQuery(requested, contextBefore: contextBefore, contextAfter: contextAfter) ?? requested)
-                : requested  // plain search for redirect case — snippet will mention the original term
+            // For single proper nouns, use a plain search regardless of whether we hit
+            // disambiguation or a silent redirect. Literary context words (e.g. "wandered",
+            // "starved") pull in thematically similar but wrong articles (Norwegian fairy tales,
+            // historical figures). Wikipedia's own relevance ranking on the bare term works better.
+            let searchTerm = isSingleProperNoun
+                ? requested
+                : (contextAugmentedQuery(requested, contextBefore: contextBefore, contextAfter: contextAfter) ?? requested)
             if let resolved = await resolveViaSearch(searchTerm, requested: requested, contextBefore: contextBefore, contextAfter: contextAfter) {
                 // resolveViaSearch scores candidates using the search result title (e.g. "Christiania"),
                 // but stores the fetched summary result whose title may be the redirect target (e.g. "Oslo").

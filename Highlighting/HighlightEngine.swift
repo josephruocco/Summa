@@ -275,9 +275,16 @@ final class HighlightEngine {
                         // Don't extend if the next token is the same word as the last — this
                         // prevents "Christiania: Christiania" (rhetorical repetition) from being
                         // merged into a nonsense two-word phrase that consumes both occurrences.
-                        // Use stopwords (not isRefNoise) for extension — common-word caps like "Dick"
-                        // in "Moby Dick" are valid phrase continuations once a proper noun has started.
-                        if u.startsWithUpper && !stopwords.contains(u.lower) {
+                        //
+                        // Extension rule: non-noise caps always extend. Additionally, a common-word
+                        // cap (e.g. "Dick" in "Moby Dick") extends only as the IMMEDIATE next token
+                        // after a single confirmed proper noun — preventing runaway chains like
+                        // "Austrian Empire Cæsarian" while still forming "Moby Dick".
+                        let isImmediateCommonCap = u.startsWithUpper
+                            && !stopwords.contains(u.lower)
+                            && isRefNoise(u)
+                            && parts.count == 1   // only one proper noun so far
+                        if u.startsWithUpper && (!isRefNoise(u) || isImmediateCommonCap) {
                             if u.lower == parts.last?.lower { break }
                             parts.append(u)
                             capitalCount += 1
@@ -288,7 +295,7 @@ final class HighlightEngine {
                         if u.isConnector, !parts.isEmpty, j + 1 < line.count {
                             // Only keep connector if followed by another capitalized token
                             let v = line[j + 1]
-                            if v.startsWithUpper && !stopwords.contains(v.lower) && gapOK(prev: u, next: v) && gapOK(prev: parts.last!, next: u) {
+                            if v.startsWithUpper && !isRefNoise(v) && gapOK(prev: u, next: v) && gapOK(prev: parts.last!, next: u) {
                                 parts.append(u)
                                 j += 1
                                 continue

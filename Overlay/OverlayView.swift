@@ -236,14 +236,17 @@ struct OverlayView: View {
                         .lineLimit(bodyLineLimit)
 
                     if result.status == .ok, let page = result.pageURL, !page.isEmpty, let url = URL(string: page) {
-                        Button {
-                            NSWorkspace.shared.open(url)
-                        } label: {
-                            Text("Open in Wikipedia →")
-                                .font(.system(size: 11))
-                                .foregroundStyle(Color(red: 0.18, green: 0.42, blue: 0.88))
+                        HStack {
+                            Spacer()
+                            Button {
+                                NSWorkspace.shared.open(url)
+                            } label: {
+                                Image(systemName: "arrow.up.right.square")
+                                    .font(.system(size: 13))
+                                    .foregroundStyle(Color(red: 0.18, green: 0.42, blue: 0.88))
+                            }
+                            .buttonStyle(.plain)
                         }
-                        .buttonStyle(.plain)
                         .padding(.top, 2)
                     }
 
@@ -275,16 +278,24 @@ struct OverlayView: View {
         private func wikiText(_ result: WikiResult) -> String {
             switch result.status {
             case .ok:
-                return (result.extract?.isEmpty == false) ? result.extract! : "No summary text found."
+                return firstSentence(result.extract) ?? "No summary text found."
             case .notFound:
                 return "No Wikipedia page found."
             case .disambiguation:
-                return (result.extract?.isEmpty == false) ? result.extract! : "Ambiguous term."
+                return firstSentence(result.extract) ?? "Ambiguous term."
             case .error:
-                return (result.extract?.isEmpty == false) ? result.extract! : "Wikipedia lookup failed."
+                return firstSentence(result.extract) ?? "Wikipedia lookup failed."
             case .suppressed:
-                return (result.extract?.isEmpty == false) ? result.extract! : "Suppressed low-confidence match."
+                return firstSentence(result.extract) ?? "Suppressed low-confidence match."
             }
+        }
+
+        private func firstSentence(_ text: String?) -> String? {
+            guard let text, !text.isEmpty else { return nil }
+            if let range = text.range(of: #"[.!?](?=\s|$)"#, options: .regularExpression) {
+                return String(text[...range.lowerBound])
+            }
+            return text
         }
 
         @ViewBuilder

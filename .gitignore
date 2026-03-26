@@ -28,3 +28,7 @@ playground.xcworkspace
 # Caches
 *.moved-aside
 *.swp
+
+# Claude Code
+.claude/
+CLAUDE.md

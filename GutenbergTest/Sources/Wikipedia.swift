@@ -190,13 +190,20 @@ enum Wikipedia {
         // Fall back to search if disambiguation was detected, or if a silent redirect was
         // detected. A pure 404 with no redirect still skips search to avoid junk.
         if hitDisambiguation || gotSilentRedirect || hitSuspiciousDirect {
-            // For single proper nouns, use a plain search regardless of whether we hit
-            // disambiguation or a silent redirect. Literary context words (e.g. "wandered",
-            // "starved") pull in thematically similar but wrong articles (Norwegian fairy tales,
-            // historical figures). Wikipedia's own relevance ranking on the bare term works better.
-            let searchTerm = isSingleProperNoun
-                ? requested
-                : (contextAugmentedQuery(requested, contextBefore: contextBefore, contextAfter: contextAfter) ?? requested)
+            // For single proper nouns that caused disambiguation we use a context-augmented
+            // query — capitalised words from the wider context (author name, nearby proper
+            // nouns) anchor the search to the right sense without pulling in generic literary
+            // words.  For silent redirects and non-proper-noun terms we keep the bare query
+            // since Wikipedia's own relevance ranking works better there (adding noise words
+            // to e.g. "Ylajali" causes it to match unrelated articles).
+            let searchTerm: String
+            if hitDisambiguation {
+                searchTerm = contextAugmentedQuery(requested, contextBefore: contextBefore, contextAfter: contextAfter) ?? requested
+            } else {
+                searchTerm = isSingleProperNoun
+                    ? requested
+                    : (contextAugmentedQuery(requested, contextBefore: contextBefore, contextAfter: contextAfter) ?? requested)
+            }
             if let resolved = await resolveViaSearch(searchTerm, requested: requested, contextBefore: contextBefore, contextAfter: contextAfter) {
                 // resolveViaSearch scores candidates using the search result title (e.g. "Christiania"),
                 // but stores the fetched summary result whose title may be the redirect target (e.g. "Oslo").
@@ -692,7 +699,15 @@ enum Wikipedia {
 
         if titleOverlap == 0, !normalizedTitle.contains(req), !req.contains(normalizedTitle) {
             if isAliasMatch {
-                score += 0.76  // strong redirect signal — term is in the article body
+                // Strong redirect signal — term is in the article body (e.g. "Christiania" → Oslo).
+                // Reduce the bonus when the article is about entertainment/pop-culture and there is
+                // no context overlap: a common name like "Nellie" incidentally appears in many film
+                // or TV articles as a character name, but those are never the intended lookup.
+                let entertainmentMarkers: Set<String> = ["film", "movie", "series", "album", "song",
+                                                          "band", "television", "discography", "soundtrack"]
+                let titleHasEntertainment = !entertainmentMarkers.isDisjoint(with: titleWords)
+                let aliasBonus: Double = (titleHasEntertainment && contextSummaryOverlap.isEmpty) ? 0.28 : 0.76
+                score += aliasBonus
             } else {
                 score -= 0.35
             }
@@ -752,6 +767,15 @@ enum Wikipedia {
         // "List of X" articles are never useful for contextual lookups.
         if normalizedTitle.hasPrefix("list of") {
             score -= 0.40
+        }
+
+        // Aggregation-page penalty: filmography/discography/bibliography/etc. articles are
+        // catalogs of works, not canonical articles about a subject. An alias match here
+        // ("Nellie" appears inside a filmography article) is always spurious.
+        let aggregationSuffixes = ["filmography", "discography", "bibliography", "videography",
+                                   "television", "performances", "chronology", "recordings"]
+        if aggregationSuffixes.contains(where: { normalizedTitle.hasSuffix($0) }) {
+            score -= 0.50
         }
 
         // "Named-after" penalty: single-word query where the title starts with the exact
@@ -898,14 +922,34 @@ enum Wikipedia {
     }
 
     // Returns a search query enriched with key context words, used when resolving disambiguation.
+    // Uses up to 4 meaningful words, preferring capitalized tokens (proper nouns) which give
+    // stronger disambiguation signal than generic literary words.
     private static func contextAugmentedQuery(_ term: String, contextBefore: String?, contextAfter: String?) -> String? {
         let combined = [contextBefore, contextAfter].compactMap { $0 }.joined(separator: " ")
         guard !combined.isEmpty else { return nil }
-        let meaningful = normalize(combined)
+
+        let termNorm = normalize(term)
+
+        // Prefer capitalized words — they're usually proper nouns that disambiguate well.
+        // E.g. for "Marlow" with context "Joseph Conrad …" we pick ["joseph","conrad"] before
+        // generic words like "wandered" or "seaman".
+        let capitalWords = combined
             .split(separator: " ").map(String.init)
-            .filter { !stopWords.contains($0) && $0.count > 3 }
-        guard !meaningful.isEmpty else { return nil }
-        return "\(term) \(meaningful.prefix(2).joined(separator: " "))"
+            .filter { w in
+                guard let first = w.first else { return false }
+                return first.isUppercase && w.count > 3 && !stopWords.contains(w.lowercased())
+            }
+            .map { normalize($0) }
+            .filter { !$0.isEmpty && $0 != termNorm }
+
+        // Fall back to any meaningful words if no capitalized ones survived.
+        let fallback = normalize(combined)
+            .split(separator: " ").map(String.init)
+            .filter { !stopWords.contains($0) && $0.count > 4 && $0 != termNorm }
+
+        let words = capitalWords.isEmpty ? fallback : capitalWords
+        guard !words.isEmpty else { return nil }
+        return "\(term) \(words.prefix(4).joined(separator: " "))"
     }
 
     // Returns false for strings that are clearly OCR garbage and not worth querying.

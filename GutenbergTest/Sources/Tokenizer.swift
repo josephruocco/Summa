@@ -70,7 +70,7 @@ enum Tokenizer {
     static func extractCandidates(
         from tokens: [Token],
         commonWords: Set<String>,
-        windowSize: Int = 20
+        windowSize: Int = 60   // wide window so context spans full sentences, not just partial ones
     ) -> [AnnotationCandidate] {
         var results: [AnnotationCandidate] = []
         var seenRef = Set<String>()

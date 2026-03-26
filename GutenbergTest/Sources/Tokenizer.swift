@@ -27,7 +27,12 @@ enum Tokenizer {
         "i","you","he","she","we","they","me","him","her","us","them",
         "my","your","his","their","our",
         "not","no","yes","do","does","did",
-        "up","down","over","under","into","out","about"
+        "up","down","over","under","into","out","about",
+        // Interjections / exclamations — never proper-noun refs
+        "oh","ah","alas","phew","ugh","ha","hey","eh","fie","lo","hark",
+        "tut","pshaw","hurrah","whoa","hush","bah","pff","pfft","gosh",
+        // Structural document headers — not look-uppable proper nouns
+        "chapter","part","section","prologue","epilogue","preface","appendix"
     ]
 
     private static let phraseConnectors: Set<String> = ["of","the","and","de","la","da","van","von"]
@@ -39,7 +44,12 @@ enum Tokenizer {
     ]
 
     static func tokenize(_ text: String) -> [Token] {
-        let words = text.split(omittingEmptySubsequences: true) { $0.isWhitespace }
+        // Normalize em/en-dashes to spaces so "Lawyer—the" splits into two tokens
+        // rather than producing an unfindable hybrid string.
+        let expanded = text
+            .replacingOccurrences(of: "\u{2014}", with: " ")  // em-dash
+            .replacingOccurrences(of: "\u{2013}", with: " ")  // en-dash
+        let words = expanded.split(omittingEmptySubsequences: true) { $0.isWhitespace }
         var tokens: [Token] = []
         for (i, word) in words.enumerated() {
             let raw = String(word)
@@ -79,9 +89,47 @@ enum Tokenizer {
                     let uIsConnector = phraseConnectors.contains(u.lower)
                     let uIsCapitalized = u.startsWithUpper
                     let uIsAllowed = refCommonAllow.contains(u.lower)
-                    guard uIsCapitalized || uIsConnector || uIsAllowed else { break }
+
+                    // Don't extend across sentence boundaries.
+                    // "Destiny. For the rest" — "Destiny" should not absorb "For".
+                    let prevRaw = tokens[j - 1].raw
+                    let prevEndsSentence = prevRaw.last.map { ".?!".contains($0) } ?? false
+                    guard !prevEndsSentence else { break }
+
+                    // Treat "and" as a list boundary once we already have a complete
+                    // capitalized phrase. This preserves titles like "War and Peace"
+                    // (only one capitalized token before "and") but stops runaway
+                    // joins like "White Steed and Albatross".
+                    if u.lower == "and", parts.count >= 2 {
+                        break
+                    }
+
+                    // Connectors (of/the/and/…) can extend the phrase when they lead into a
+                    // short connector chain that ends in a capitalised token.
+                    // This keeps "Lord of the White Elephants" intact while still blocking
+                    // runaway prose like "Lawyer the best…".
+                    var connectorAllowed = false
+                    if uIsConnector {
+                        var lookahead = j + 1
+                        var chainedConnectors = 0
+                        while lookahead < tokens.count && chainedConnectors <= 2 {
+                            let v = tokens[lookahead]
+                            let prev = tokens[lookahead - 1].raw
+                            if prev.last.map({ ".?!".contains($0) }) == true { break }
+                            if v.startsWithUpper {
+                                connectorAllowed = true
+                                break
+                            }
+                            guard phraseConnectors.contains(v.lower) else { break }
+                            chainedConnectors += 1
+                            lookahead += 1
+                        }
+                    }
+
+                    guard uIsCapitalized || connectorAllowed || uIsAllowed else { break }
                     // Don't extend when next token is same word as last
                     if u.lower == parts.last?.lowercased() { break }
+
                     parts.append(u.cleaned)
                     j += 1
                 }
@@ -96,8 +144,17 @@ enum Tokenizer {
 
                 if parts.count == 1 {
                     // Single-word: skip if it's a common word (unless proper noun in a
-                    // position where it's clearly a name — always upper at sentence start)
-                    if commonWords.contains(phraseLower) && !refCommonAllow.contains(phraseLower) {
+                    // position where it's clearly a name — always upper at sentence start).
+                    // Also strip possessive before the check so "Creator's" is caught by
+                    // the common-word filter the same way plain "Creator" would be.
+                    let basePhraseLower: String
+                    if phraseLower.hasSuffix("'s") || phraseLower.hasSuffix("\u{2019}s") {
+                        basePhraseLower = String(phraseLower.dropLast(2))
+                    } else {
+                        basePhraseLower = phraseLower
+                    }
+                    if (commonWords.contains(phraseLower) || commonWords.contains(basePhraseLower))
+                        && !refCommonAllow.contains(basePhraseLower) {
                         i = j; continue
                     }
                     // Skip vocab-suffix words

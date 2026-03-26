@@ -357,22 +357,22 @@ struct BookSpec {
 let defaultBooks: [BookSpec] = [
     // Hunger: <div class="chapter"> index 2 = Part I (skips edition note + intro)
     BookSpec(id: 8387, title: "Hunger",                     slug: "hunger_ch01",
-             chapterTitle: "Hunger — Knut Hamsun",              maxChars: 15_000, chapterDivIndex: 2),
+             chapterTitle: "Hunger — Knut Hamsun",              maxChars: 0, chapterDivIndex: 2),
     // Moby-Dick: Chapter 42 "The Whiteness of the Whale"
     BookSpec(id: 2701, title: "Moby-Dick",                  slug: "md_ch42",
-             chapterTitle: "Moby-Dick, Chapter 42 — Herman Melville", maxChars: 15_000,
+             chapterTitle: "Moby-Dick, Chapter 42 — Herman Melville", maxChars: 0,
              startAnchor: "link2HCH0042", endAnchor: "link2HCH0043"),
     // Crime and Punishment: Part I Chapter I (Raskolnikov leaving his garret)
     BookSpec(id: 2554, title: "Crime and Punishment",       slug: "cap_ch01",
-             chapterTitle: "Crime and Punishment, Part I Chapter I — Dostoevsky", maxChars: 15_000,
+             chapterTitle: "Crime and Punishment, Part I Chapter I — Dostoevsky", maxChars: 0,
              startAnchor: "link2HCH0001", endAnchor: "link2HCH0002"),
     // Heart of Darkness: opening on the Nellie through to Marlow beginning his Congo account
     BookSpec(id: 526,  title: "Heart of Darkness",          slug: "hod_full",
-             chapterTitle: "Heart of Darkness — Joseph Conrad",  maxChars: 15_000,
+             chapterTitle: "Heart of Darkness — Joseph Conrad",  maxChars: 0,
              startAnchor: "id00005", endAnchor: "id00019"),
     // Dorian Gray: Chapter I (Basil's studio, first meeting with Lord Henry)
     BookSpec(id: 174,  title: "The Picture of Dorian Gray", slug: "dg_ch01",
-             chapterTitle: "The Picture of Dorian Gray, Chapter I — Oscar Wilde", maxChars: 15_000,
+             chapterTitle: "The Picture of Dorian Gray, Chapter I — Oscar Wilde", maxChars: 0,
              startAnchor: "chap01", endAnchor: "chap02"),
 ]
 
@@ -420,14 +420,31 @@ for book in bookList {
 
     log("  \(refs.count) ref candidates → Wikipedia lookups, \(vocabs.count) vocab → dictionary")
 
+    // Book-level disambiguation context: prepend author name + distinctive title words to
+    // every lookup so character names like "Marlow" (Conrad) or "Raskolnikov" (Dostoevsky)
+    // resolve to the correct article rather than an unrelated person.
+    //
+    // We filter the book title to words ≥7 chars so generic short words like "Hunger",
+    // "Crime", "Heart" don't spill into unrelated articles, while keeping distinctive words
+    // like "Darkness", "Punishment", "Picture" that appear in the canonical article text.
+    let chapterParts = book.chapterTitle.components(separatedBy: " — ")
+    let authorName = chapterParts.count > 1 ? chapterParts.last! : ""
+    let titleDistinctive = book.title
+        .split(separator: " ").map(String.init)
+        .filter { $0.count >= 7 && !["chapter","section","prologue","epilogue"].contains($0.lowercased()) }
+        .joined(separator: " ")
+    let docContext = [titleDistinctive, authorName].filter { !$0.isEmpty }.joined(separator: " ")
+
     var annotations: [DemoAnnotation] = []
     var seenTerms = Set<String>()
     for candidate in refs {
         guard seenTerms.insert(candidate.phrase.lowercased()).inserted else { continue }
 
+        let enrichedBefore = [docContext, candidate.contextBefore]
+            .filter { !$0.isEmpty }.joined(separator: " ")
         let result = await Wikipedia.lookup(
             candidate.phrase,
-            contextBefore: candidate.contextBefore.isEmpty ? nil : candidate.contextBefore,
+            contextBefore: enrichedBefore.isEmpty ? nil : enrichedBefore,
             contextAfter:  candidate.contextAfter.isEmpty  ? nil : candidate.contextAfter
         )
 

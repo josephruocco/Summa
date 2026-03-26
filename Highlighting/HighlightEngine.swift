@@ -271,6 +271,14 @@ final class HighlightEngine {
                             guard gapOK(prev: parts.last!, next: u) else { break }
                         }
 
+                        // Conjunctions behave differently from prepositions here:
+                        // once we already have a complete capitalized phrase, "and"
+                        // usually starts a new list item ("White Steed and Albatross"),
+                        // while "of/the" can still be internal to the same phrase.
+                        if u.lower == "and", capitalCount >= 2 {
+                            break
+                        }
+
                         // Accept: Capitalized tokens, plus small connector words inside the phrase.
                         // Don't extend if the next token is the same word as the last — this
                         // prevents "Christiania: Christiania" (rhetorical repetition) from being
@@ -280,10 +288,12 @@ final class HighlightEngine {
                         // cap (e.g. "Dick" in "Moby Dick") extends only as the IMMEDIATE next token
                         // after a single confirmed proper noun — preventing runaway chains like
                         // "Austrian Empire Cæsarian" while still forming "Moby Dick".
+                        let previousWasConnector = parts.last?.isConnector ?? false
+                        let connectorBeforePrevious = parts.count >= 2 ? parts[parts.count - 2].isConnector : false
                         let isImmediateCommonCap = u.startsWithUpper
                             && !stopwords.contains(u.lower)
                             && isRefNoise(u)
-                            && parts.count == 1   // only one proper noun so far
+                            && (parts.count == 1 || previousWasConnector || connectorBeforePrevious)
                         if u.startsWithUpper && (!isRefNoise(u) || isImmediateCommonCap) {
                             if u.lower == parts.last?.lower { break }
                             parts.append(u)
@@ -293,9 +303,23 @@ final class HighlightEngine {
                         }
 
                         if u.isConnector, !parts.isEmpty, j + 1 < line.count {
-                            // Only keep connector if followed by another capitalized token
-                            let v = line[j + 1]
-                            if v.startsWithUpper && !isRefNoise(v) && gapOK(prev: u, next: v) && gapOK(prev: parts.last!, next: u) {
+                            // Keep short connector chains when they lead into a capitalized token.
+                            var lookahead = j + 1
+                            var chainedConnectors = 0
+                            var connectorAllowed = false
+                            while lookahead < line.count && chainedConnectors <= 2 {
+                                let v = line[lookahead]
+                                if !gapOK(prev: line[lookahead - 1], next: v) { break }
+                                if v.startsWithUpper {
+                                    connectorAllowed = !isRefNoise(v) || (v.startsWithUpper && !stopwords.contains(v.lower))
+                                    break
+                                }
+                                guard v.isConnector else { break }
+                                chainedConnectors += 1
+                                lookahead += 1
+                            }
+
+                            if connectorAllowed && gapOK(prev: parts.last!, next: u) {
                                 parts.append(u)
                                 j += 1
                                 continue

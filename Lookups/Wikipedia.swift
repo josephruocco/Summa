@@ -67,12 +67,44 @@ enum Wikipedia {
         var allBaseNotFound = true
         var bestDirectScore: Double = 0.0
         var bestSuppressedResult: WikiResult? = nil
+        var hitSuspiciousDirect = false
 
         for query in retryQueries(for: requested) {
             if let direct = await fetchSummary(title: query) {
                 if direct.status != .notFound { allBaseNotFound = false }
 
-                if let accepted = verify(result: direct, requested: requested, contextBefore: contextBefore, contextAfter: contextAfter) {
+                let directScore = direct.status == .ok ? scoreCandidate(
+                    requested: requested,
+                    title: direct.title,
+                    snippet: nil,
+                    extract: direct.extract,
+                    contextBefore: contextBefore,
+                    contextAfter: contextAfter,
+                    status: direct.status
+                ) : 0.0
+                let suspiciousDirect = direct.status == .ok && shouldCompareAgainstSearch(
+                    requested: requested,
+                    title: direct.title,
+                    extract: direct.extract,
+                    contextBefore: contextBefore,
+                    contextAfter: contextAfter
+                )
+                if suspiciousDirect {
+                    hitSuspiciousDirect = true
+                    let isSingleProperNoun = requested.first?.isUppercase == true && !requested.contains(" ")
+                    let searchTerm = isSingleProperNoun
+                        ? requested
+                        : (contextAugmentedQuery(requested, contextBefore: contextBefore, contextAfter: contextAfter) ?? requested)
+                    if let resolved = await resolveViaSearch(searchTerm, requested: requested, contextBefore: contextBefore, contextAfter: contextAfter),
+                       let resolvedScore = resolved.score,
+                       resolved.status == .ok,
+                       resolvedScore >= max(0.62, directScore + 0.05) {
+                        return resolved
+                    }
+                }
+
+                if !suspiciousDirect,
+                   let accepted = verify(result: direct, requested: requested, contextBefore: contextBefore, contextAfter: contextAfter) {
                     return accepted
                 }
 
@@ -92,9 +124,8 @@ enum Wikipedia {
                 } else if direct.status == .ok {
                     // Don't exit early — track the best low-scoring result and keep trying.
                     // Context expansion below may find a better match.
-                    let s = scoreCandidate(requested: requested, title: direct.title, snippet: nil, extract: direct.extract, contextBefore: contextBefore, contextAfter: contextAfter, status: direct.status)
-                    if s > bestDirectScore {
-                        bestDirectScore = s
+                    if directScore > bestDirectScore {
+                        bestDirectScore = directScore
                         bestSuppressedResult = suppress(result: direct, reason: "direct result scored too low")
                     }
                 }
@@ -121,6 +152,33 @@ enum Wikipedia {
             }
         }
 
+        // Multi-word phrases that 404 should still get a plain search pass.
+        // "Lord of the White Elephants" has no exact page, but Wikipedia search can still
+        // resolve it to the concept page "White elephant".
+        let looksLikeMeaningfulPhrase = requested.contains(" ")
+            && requested.split(separator: " ").count >= 3
+        if allBaseNotFound && looksLikeMeaningfulPhrase {
+            for query in phraseSearchQueries(for: requested) {
+                if let resolved = await resolveViaSearch(query, requested: query, contextBefore: contextBefore, contextAfter: contextAfter) {
+                    if resolved.status == .ok, let s = resolved.score, s >= 0.62 {
+                        var accepted = resolved
+                        accepted.requested = requested
+                        return accepted
+                    }
+                    if let accepted = verify(result: resolved, requested: query, contextBefore: contextBefore, contextAfter: contextAfter) {
+                        var rebound = accepted
+                        rebound.requested = requested
+                        return rebound
+                    }
+                    if resolved.status == .ok {
+                        var suppressed = suppress(result: resolved, reason: "phrase search result scored too low")
+                        suppressed.requested = requested
+                        bestSuppressedResult = suppressed
+                    }
+                }
+            }
+        }
+
         // Silent-redirect recovery: Wikipedia returned a 200 OK but the title has no word
         // overlap with the requested term, meaning it silently redirected elsewhere (e.g.
         // "Christiania" → Oslo). The short REST API extract rarely contains the original
@@ -131,7 +189,7 @@ enum Wikipedia {
 
         // Fall back to search if disambiguation was detected, or if a silent redirect was
         // detected. A pure 404 with no redirect still skips search to avoid junk.
-        if hitDisambiguation || gotSilentRedirect {
+        if hitDisambiguation || gotSilentRedirect || hitSuspiciousDirect {
             // For single proper nouns, use a plain search regardless of whether we hit
             // disambiguation or a silent redirect. Literary context words (e.g. "wandered",
             // "starved") pull in thematically similar but wrong articles (Norwegian fairy tales,
@@ -338,10 +396,28 @@ enum Wikipedia {
                 return suppress(result: best, reason: "best search candidate below threshold")
             }
 
-            // Skip margin check for very high-confidence results — a score >= 0.85 means the
-            // requested term was found verbatim in the article (alias match), which is already
-            // strong evidence. Enforcing margin here just suppresses valid tied alias results.
-            let highConfidence = (best.score ?? 0) >= 0.85
+            // Skip margin check for two cases where a close runner-up is expected:
+            //
+            // 1. Genuine alias matches — the requested term doesn't appear in the returned title
+            //    but was found verbatim in the article body (e.g. "Pegu" → "Hanthawaddy kingdom").
+            //    Multiple alias-matching articles can score within 0.08 of each other; enforcing
+            //    a margin just suppresses valid tied results.
+            //
+            // 2. Super-title matches — the title fully contains the request as a subsequence of
+            //    words (e.g. "Raskolnikov" → "Rodion Raskolnikov"). The runner-up is often another
+            //    article about the same subject (e.g. "Crime and Punishment") so a narrow margin
+            //    is expected and should not suppress the correct top result.
+            //
+            // Title-prefix wins (e.g. "Christiania SK" for "Christiania") still respect the
+            // margin constraint since those require disambiguation between similarly named articles.
+            let bestNormTitle = normalize(best.title ?? "")
+            let reqNorm = normalize(requested)
+            let looksLikeAlias = !bestNormTitle.contains(reqNorm) && !reqNorm.contains(bestNormTitle)
+            // Only bypass margin for single-word super-title matches (e.g. "Raskolnikov" →
+            // "Rodion Raskolnikov"). Multi-word phrases like "University Street" appear verbatim
+            // in unrelated directory articles and should still require a margin.
+            let titleContainsRequest = !reqNorm.isEmpty && !reqNorm.contains(" ") && bestNormTitle.contains(reqNorm)
+            let highConfidence = (looksLikeAlias || titleContainsRequest) && (best.score ?? 0) >= 0.69
             guard margin >= 0.08 || highConfidence else {
                 return suppress(result: best, reason: "search candidates too close")
             }
@@ -499,6 +575,45 @@ enum Wikipedia {
         return candidates
     }
 
+    private static func phraseSearchQueries(for requested: String) -> [String] {
+        let phraseConnectors: Set<String> = ["of", "the", "and", "de", "la", "da", "van", "von"]
+        let cleaned = requested
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: .punctuationCharacters)
+        let words = cleaned
+            .split(separator: " ")
+            .map(String.init)
+            .map { $0.trimmingCharacters(in: .punctuationCharacters) }
+            .filter { !$0.isEmpty }
+
+        guard words.count >= 3 else { return [cleaned] }
+
+        var seen = Set<String>()
+        var queries: [String] = []
+
+        func add(_ s: String) {
+            let trimmed = s.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty, seen.insert(normalize(trimmed)).inserted else { return }
+            queries.append(trimmed)
+        }
+
+        add(cleaned)
+        add(singularize(cleaned))
+
+        let tail2 = words.suffix(2).joined(separator: " ")
+        add(tail2)
+        add(singularize(tail2))
+
+        let meaningful = words.filter { !phraseConnectors.contains($0.lowercased()) }
+        if meaningful.count >= 2 {
+            let meaningfulTail = meaningful.suffix(2).joined(separator: " ")
+            add(meaningfulTail)
+            add(singularize(meaningfulTail))
+        }
+
+        return queries
+    }
+
     private static func scoreCandidate(
         requested: String,
         title: String?,
@@ -508,7 +623,15 @@ enum Wikipedia {
         contextAfter: String?,
         status: WikiStatus
     ) -> Double {
-        let req = normalize(requested)
+        // Strip possessive markers before normalizing so they don't produce noise tokens.
+        // Handles both trailing possessives ("Coleridge's" → "Coleridge") and mid-phrase
+        // possessives ("Virginia's Blue Ridge" → "Virginia Blue Ridge").
+        let reqStripped = requested.trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "'s ", with: " ")   // mid-phrase: "Virginia's Blue"
+            .replacingOccurrences(of: "\u{2019}s ", with: " ")
+            .replacingOccurrences(of: "'s", with: "")     // trailing: "Coleridge's"
+            .replacingOccurrences(of: "\u{2019}s", with: "")
+        let req = normalize(reqStripped)
         let normalizedTitle = normalize(title ?? "")
         let context = normalize([contextBefore, contextAfter].compactMap { $0 }.joined(separator: " "))
         let summary = normalize([snippet, extract].compactMap { $0 }.joined(separator: " "))
@@ -525,12 +648,24 @@ enum Wikipedia {
 
         score += min(0.18, Double(commonPrefixLen(normalizedTitle, req)) * 0.03)
 
-        let reqWords = Set(req.split(separator: " ").map(String.init))
-        let titleWords = Set(normalizedTitle.split(separator: " ").map(String.init))
+        let reqWordList = req.split(separator: " ").map(String.init)
+        let titleWordList = normalizedTitle.split(separator: " ").map(String.init)
+        let reqWords = Set(reqWordList)
+        let titleWords = Set(titleWordList)
+        let singularReqWords = Set(reqWordList.map(singularize))
+        let singularTitleWords = Set(titleWordList.map(singularize))
         let summaryWords = Set(summary.split(separator: " ").map(String.init))
         let titleOverlap = reqWords.intersection(titleWords).count
+        let singularTitleOverlap = singularReqWords.intersection(singularTitleWords).count
         let summaryOverlap = reqWords.intersection(summaryWords).count
         let requestedHasUppercase = requested.contains { $0.isUppercase }
+        let loweredSummary = summary.lowercased()
+        let rawContextWords = Set(context.split(separator: " ").map(String.init))
+        let filteredContext = rawContextWords.subtracting(stopWords)
+        let filteredSummary = summaryWords.subtracting(stopWords)
+        let effectiveContext = filteredContext.isEmpty ? rawContextWords : filteredContext
+        let effectiveSummary = filteredContext.isEmpty ? summaryWords : filteredSummary
+        let contextSummaryOverlap = effectiveContext.intersection(effectiveSummary)
 
         // Alias/redirect detection: the queried term appears verbatim in the article body
         // despite no title overlap. Handles historical name redirects (e.g. "Christiania" → Oslo).
@@ -551,6 +686,7 @@ enum Wikipedia {
 
         if !reqWords.isEmpty {
             score += Double(titleOverlap) * 0.12
+            score += Double(max(0, singularTitleOverlap - titleOverlap)) * 0.10
             score += Double(summaryOverlap) * 0.05
         }
 
@@ -566,13 +702,35 @@ enum Wikipedia {
             score += 0.24
         }
 
+        // Clean surname match bonus: "Coleridge" → "Samuel Taylor Coleridge".
+        if requestedHasUppercase,
+           reqWordList.count == 1,
+           let requestedWord = reqWordList.first,
+           titleWordList.last == requestedWord,
+           titleWordList.count >= 2 {
+            score += 0.12
+        }
+
+        // Multi-word phrase subset bonus: all request words appear in the title
+        // (e.g. "Dorian Gray" → "The Picture of Dorian Gray"). This is strong evidence
+        // we have the right article even when the title has extra surrounding words.
+        if reqWords.count >= 2, !reqWords.isEmpty, reqWords.isSubset(of: titleWords) {
+            score += 0.12
+        }
+
+        // Lemma-equivalent phrase bonus: "White Elephants" should strongly match the
+        // concept article "White elephant", not lose to a title that merely contains
+        // the plural phrase with an unrelated leading qualifier.
+        if singularReqWords.count >= 2, !singularReqWords.isEmpty {
+            if singularReqWords == singularTitleWords {
+                score += 0.18
+            } else if singularReqWords.isSubset(of: singularTitleWords) {
+                score += 0.08
+            }
+        }
+
         // Context scoring: strip stop words so common words don't inflate overlap.
         if !context.isEmpty {
-            let rawContextWords = Set(context.split(separator: " ").map(String.init))
-            let filteredContext = rawContextWords.subtracting(stopWords)
-            let filteredSummary = summaryWords.subtracting(stopWords)
-            let effectiveContext = filteredContext.isEmpty ? rawContextWords : filteredContext
-            let effectiveSummary = filteredContext.isEmpty ? summaryWords : filteredSummary
             score += min(0.28, Double(effectiveContext.intersection(effectiveSummary).count) * 0.07)
             score += min(0.14, Double(effectiveContext.intersection(titleWords).count) * 0.07)
         }
@@ -605,7 +763,6 @@ enum Wikipedia {
             score -= 0.18
         }
 
-        let loweredSummary = summary.lowercased()
         if loweredSummary.contains("may refer to") || loweredSummary.contains("can refer to") {
             score -= 0.45
         }
@@ -616,6 +773,23 @@ enum Wikipedia {
 
         if !requestedHasUppercase && (titleWords.count >= 2 || loweredSummary.contains("born")) {
             score -= 0.18
+        }
+
+        let sportsWords: Set<String> = ["baseball", "basketball", "football", "club", "team", "league", "season", "player"]
+        let biographyWords: Set<String> = ["actor", "actress", "politician", "rapper", "singer", "footballer", "cricketer", "minister", "coach", "player", "born"]
+        let literaryRoleWords: Set<String> = ["poet", "writer", "author", "novelist", "philosopher", "critic", "theologian", "historian"]
+
+        if !sportsWords.isDisjoint(with: summaryWords), contextSummaryOverlap.isEmpty {
+            score -= 0.40
+        }
+
+        if requestedHasUppercase,
+           reqWords.count == 1,
+           titleWords.count >= 2,
+           !biographyWords.isDisjoint(with: summaryWords),
+           literaryRoleWords.isDisjoint(with: summaryWords),
+           contextSummaryOverlap.isEmpty {
+            score -= 0.32
         }
 
         if req.count <= 3 {
@@ -645,6 +819,64 @@ enum Wikipedia {
         }
 
         if reqWords.count == 1, let onlyWord = reqWords.first, normalizedSnippet.contains(onlyWord) {
+            return true
+        }
+
+        return false
+    }
+
+    private static func shouldCompareAgainstSearch(
+        requested: String,
+        title: String?,
+        extract: String?,
+        contextBefore: String?,
+        contextAfter: String?
+    ) -> Bool {
+        let req = normalize(stripPossessive(requested.trimmingCharacters(in: .whitespacesAndNewlines)))
+        let normalizedTitle = normalize(title ?? "")
+        guard !req.isEmpty, !normalizedTitle.isEmpty, req != normalizedTitle else { return false }
+
+        let reqWords = req.split(separator: " ").map(String.init)
+        let titleWords = normalizedTitle.split(separator: " ").map(String.init)
+        let reqWordSet = Set(reqWords)
+        let titleWordSet = Set(titleWords)
+        let contextWords = Set(
+            normalize([contextBefore, contextAfter].compactMap { $0 }.joined(separator: " "))
+                .split(separator: " ")
+                .map(String.init)
+        ).subtracting(stopWords)
+        let summaryWords = Set(normalize(extract ?? "").split(separator: " ").map(String.init)).subtracting(stopWords)
+        let requestWords = Set(req.split(separator: " ").map(String.init)).union(
+            Set(req.split(separator: " ").map(String.init).map(singularize))
+        )
+        let overlap = contextWords.intersection(summaryWords).subtracting(requestWords)
+
+        let containsRequest = normalizedTitle.contains(req)
+            || req.contains(normalizedTitle)
+            || (!reqWordSet.isEmpty && reqWordSet.isSubset(of: titleWordSet))
+        guard containsRequest else { return false }
+
+        let sportsWords: Set<String> = ["baseball", "basketball", "football", "club", "team", "league", "season", "player"]
+        let biographyWords: Set<String> = ["actor", "actress", "politician", "rapper", "singer", "footballer", "cricketer", "minister", "coach", "player", "born"]
+        let literaryRoleWords: Set<String> = ["poet", "writer", "author", "novelist", "philosopher", "critic", "theologian", "historian"]
+        let placeWords: Set<String> = ["street", "boulevard", "avenue", "square", "commune", "district", "quarter", "neighborhood", "city", "town", "municipality", "norway", "denmark", "canada", "quebec", "montreal", "copenhagen", "oslo"]
+
+        if !sportsWords.isDisjoint(with: summaryWords), overlap.isEmpty {
+            return true
+        }
+
+        if reqWords.count == 1,
+           titleWords.count >= 2,
+           !biographyWords.isDisjoint(with: summaryWords),
+           literaryRoleWords.isDisjoint(with: summaryWords),
+           overlap.isEmpty {
+            return true
+        }
+
+        if requested.contains { $0.isUppercase },
+           overlap.isEmpty,
+           !placeWords.isDisjoint(with: summaryWords),
+           (titleWords.count > reqWords.count || reqWords.count == 1) {
             return true
         }
 

@@ -160,10 +160,14 @@ enum Wikipedia {
         // Also covers 2-word abbreviated forms like "St Olav's" → Saint Olaf.
         let looksLikeMeaningfulPhrase = requested.contains(" ")
             && requested.split(separator: " ").count >= 2
-        if allBaseNotFound && looksLikeMeaningfulPhrase {
+        // Also run phrase search when Wikipedia found something but scored it essentially 0
+        // (e.g. "St Olav's" → Wikipedia returns "Olaf II of Norway" with no word overlap →
+        // clamped score 0.0, never flagged as suspicious since containsRequest fails).
+        let effectivelyNotFound = allBaseNotFound || bestDirectScore < 0.10
+        if effectivelyNotFound && looksLikeMeaningfulPhrase {
             for query in phraseSearchQueries(for: requested) {
                 if let resolved = await resolveViaSearch(query, requested: query, contextBefore: contextBefore, contextAfter: contextAfter) {
-                    if resolved.status == .ok, let s = resolved.score, s >= 0.62 {
+                    if resolved.status == .ok, let s = resolved.score, s >= 0.55 {
                         var accepted = resolved
                         accepted.requested = requested
                         return accepted
@@ -211,7 +215,7 @@ enum Wikipedia {
                 // but stores the fetched summary result whose title may be the redirect target (e.g. "Oslo").
                 // Re-running verify() here would re-score against the redirect title and fail. Trust the
                 // score resolveViaSearch already set if it meets the acceptance threshold.
-                if resolved.status == .ok, let s = resolved.score, s >= 0.62 {
+                if resolved.status == .ok, let s = resolved.score, s >= 0.55 {
                     return resolved
                 }
                 if let accepted = verify(result: resolved, requested: requested, contextBefore: contextBefore, contextAfter: contextAfter) {
@@ -481,32 +485,40 @@ enum Wikipedia {
             normalizedQ = normalizedQ.replacingOccurrences(of: historical, with: modern)
         }
 
-        var comps = URLComponents(string: "https://api.search.brave.com/res/v1/web/search")!
-        comps.queryItems = [
-            URLQueryItem(name: "q",     value: "\(normalizedQ) site:en.wikipedia.org"),
-            URLQueryItem(name: "count", value: "8"),
-        ]
-        guard let url = comps.url else { return nil }
+        // For honorific phrases like "St Olav's", the abbreviated/possessive form may
+        // confuse Brave's index.  Also try the expanded form ("Saint Olav") as a fallback.
+        let reqNormForExpansion = normalize(stripPossessive(requested.trimmingCharacters(in: .whitespacesAndNewlines)))
+        var braveQueries: [String] = [normalizedQ]
+        for expanded in honorificExpansions(reqNormForExpansion) where expanded != reqNormForExpansion {
+            let titleCased = expanded.split(separator: " ").map { w in
+                String(w.prefix(1)).uppercased() + String(w.dropFirst())
+            }.joined(separator: " ")
+            if !braveQueries.contains(titleCased) { braveQueries.append(titleCased) }
+        }
 
-        var req = URLRequest(url: url)
-        req.timeoutInterval = 8
-        req.setValue(apiKey,             forHTTPHeaderField: "X-Subscription-Token")
-        req.setValue("application/json", forHTTPHeaderField: "Accept")
-
-        do {
-            let (data, resp) = try await URLSession.shared.data(for: req)
-            guard (resp as? HTTPURLResponse)?.statusCode == 200 else { return nil }
-
-            guard let obj      = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let web      = obj["web"] as? [String: Any],
-                  let results  = web["results"] as? [[String: Any]]
-            else { return nil }
+        // Try each query in order; stop once we have gate-passing Wikipedia candidates.
+        var candidates: [SearchCandidate] = []
+        for bq in braveQueries {
+            var comps = URLComponents(string: "https://api.search.brave.com/res/v1/web/search")!
+            comps.queryItems = [
+                URLQueryItem(name: "q",     value: "\(bq) site:en.wikipedia.org"),
+                URLQueryItem(name: "count", value: "8"),
+            ]
+            guard let url = comps.url else { continue }
+            var urlReq = URLRequest(url: url)
+            urlReq.timeoutInterval = 8
+            urlReq.setValue(apiKey,             forHTTPHeaderField: "X-Subscription-Token")
+            urlReq.setValue("application/json", forHTTPHeaderField: "Accept")
+            guard let (data, resp) = try? await URLSession.shared.data(for: urlReq),
+                  (resp as? HTTPURLResponse)?.statusCode == 200,
+                  let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let web = obj["web"] as? [String: Any],
+                  let results = web["results"] as? [[String: Any]] else { continue }
 
             // Extract Wikipedia article titles from result URLs
-            // e.g. https://en.wikipedia.org/wiki/Universitetsplassen → "Universitetsplassen"
-            var candidates: [SearchCandidate] = []
+            var extracted: [SearchCandidate] = []
             for entry in results {
-                guard let urlStr = entry["url"]   as? String,
+                guard let urlStr = entry["url"] as? String,
                       urlStr.hasPrefix("https://en.wikipedia.org/wiki/") else { continue }
                 let rawSlug = urlStr.replacingOccurrences(of: "https://en.wikipedia.org/wiki/", with: "")
                 let title   = rawSlug
@@ -514,46 +526,78 @@ enum Wikipedia {
                     .replacingOccurrences(of: "_", with: " ")
                     ?? (entry["title"] as? String ?? "")
                 let snippet = (entry["description"] as? String) ?? ""
-                candidates.append(SearchCandidate(title: title, snippet: snippet))
+                extracted.append(SearchCandidate(title: title, snippet: snippet))
             }
-            guard !candidates.isEmpty else { return nil }
 
-            // Re-rank with the same scoring used for Wikipedia search candidates
-            let ranked = rankCandidates(
-                requested: requested,
-                candidates: candidates,
-                contextBefore: contextBefore,
-                contextAfter: contextAfter
-            )
-            let topCandidates = Array(ranked.prefix(3))
-            var resolved: [(WikiResult, Double)] = []
-
-            for candidate in topCandidates {
-                guard let summary = await fetchSummary(title: candidate.title) else { continue }
-                let score = scoreCandidate(
-                    requested: requested,
-                    title: candidate.title,
-                    snippet: candidate.snippet,
-                    extract: summary.extract,
-                    contextBefore: contextBefore,
-                    contextAfter: contextAfter,
-                    status: summary.status
-                )
-                var enriched = summary
-                enriched.requested = requested
-                enriched.score = score
-                resolved.append((enriched, score))
+            let ranked = rankCandidates(requested: requested, candidates: extracted,
+                                        contextBefore: contextBefore, contextAfter: contextAfter)
+            if !ranked.isEmpty {
+                candidates = extracted  // use full unfiltered list; re-rank below
+                break
             }
-            guard !resolved.isEmpty else { return nil }
-
-            let sorted = resolved.sorted { $0.1 > $1.1 }
-            let best   = sorted[0].0
-            guard (best.score ?? 0) >= 0.58, best.status == .ok else { return nil }
-            return best
-
-        } catch {
-            return nil
+            // No gate-passing candidates for this query — try next
         }
+        guard !candidates.isEmpty else { return nil }
+
+        // Re-rank with the same scoring used for Wikipedia search candidates
+        let ranked = rankCandidates(
+            requested: requested,
+            candidates: candidates,
+            contextBefore: contextBefore,
+            contextAfter: contextAfter
+        )
+        let topCandidates = Array(ranked.prefix(3))
+        // Carry the Brave snippet alongside each result so we can use it as
+        // explicit-match evidence below (the snippet is Brave's own relevance signal).
+        var resolvedCandidates: [(WikiResult, Double, String)] = []
+
+        for candidate in topCandidates {
+            guard let summary = await fetchSummary(title: candidate.title) else { continue }
+            let score = scoreCandidate(
+                requested: requested,
+                title: candidate.title,
+                snippet: candidate.snippet,
+                extract: summary.extract,
+                contextBefore: contextBefore,
+                contextAfter: contextAfter,
+                status: summary.status
+            )
+            var enriched = summary
+            enriched.requested = requested
+            enriched.score = score
+            resolvedCandidates.append((enriched, score, candidate.snippet))
+        }
+        guard !resolvedCandidates.isEmpty else { return nil }
+
+        let sorted = resolvedCandidates.sorted { $0.1 > $1.1 }
+        var best      = sorted[0].0
+        var bestScore = sorted[0].1
+        let bestSnippet = sorted[0].2
+
+        // Brave's own snippet is direct relevance evidence: if the snippet contains
+        // any significant content word from the request (singularized, honorific-expanded),
+        // trust Brave's ranking and floor the score to 0.60.
+        // Word-level matching handles transliteration variants like "St Olav's" → Saint Olaf
+        // where the snippet says "also known as Olav" (not "Olavs").
+        let reqNorm   = normalize(stripPossessive(requested.trimmingCharacters(in: .whitespacesAndNewlines)))
+        let reqExp    = honorificExpansions(reqNorm).last ?? reqNorm
+        let normSnippet = normalize(bestSnippet)
+        // Strip honorific abbreviations so "st" alone doesn't match unrelated snippets.
+        let honorificPrefixes: Set<String> = ["st", "dr", "mt", "ft", "mr", "mrs", "ms"]
+        let reqContentWords = Set(reqNorm.split(separator: " ").map { singularize(String($0)) })
+            .subtracting(honorificPrefixes)
+        let reqExpContentWords = Set(reqExp.split(separator: " ").map { singularize(String($0)) })
+            .subtracting(honorificPrefixes)
+        let snippetWords = Set(normSnippet.split(separator: " ").map { singularize(String($0)) })
+        let hasSnippetEvidence = !reqContentWords.intersection(snippetWords).isEmpty
+            || !reqExpContentWords.intersection(snippetWords).isEmpty
+        if hasSnippetEvidence, bestScore < 0.60, best.status == .ok {
+            bestScore = 0.60
+            best.score = bestScore
+        }
+
+        guard bestScore >= 0.50, best.status == .ok else { return nil }
+        return best
     }
 
     private static func makeSearchURL(query: String, limit: Int) -> URL? {
@@ -1026,6 +1070,25 @@ enum Wikipedia {
             return true
         }
 
+        // Snippet-based fallback for multi-word requests: a Brave snippet often contains
+        // the requested phrase even when the canonical Wikipedia title diverges (e.g.
+        // "Saint_Olaf" redirects to "Olaf II of Norway" whose title shares no words with
+        // "St Olav's", but the snippet mentions "Olav").  Use singularized content words
+        // so "olavs" ≈ "olav".
+        if reqWords.count >= 2, !normalizedSnippet.isEmpty {
+            let honorificPrefixes: Set<String> = ["st", "dr", "mt", "ft", "mr", "mrs", "ms"]
+            let contentWords = Set(req.split(separator: " ").map { singularize(String($0)) })
+                .subtracting(honorificPrefixes)
+            let expContentWords = honorificExpansions(req).flatMap {
+                $0.split(separator: " ").map { singularize(String($0)) }
+            }
+            let snippetWordsSing = Set(normalizedSnippet.split(separator: " ").map { singularize(String($0)) })
+            if !contentWords.intersection(snippetWordsSing).isEmpty
+                || !Set(expContentWords).subtracting(honorificPrefixes).intersection(snippetWordsSing).isEmpty {
+                return true
+            }
+        }
+
         return false
     }
 
@@ -1050,9 +1113,10 @@ enum Wikipedia {
                 .map(String.init)
         ).subtracting(stopWords)
         let summaryWords = Set(normalize(extract ?? "").split(separator: " ").map(String.init)).subtracting(stopWords)
-        let requestWords = Set(req.split(separator: " ").map(String.init)).union(
-            Set(req.split(separator: " ").map(String.init).map(singularize))
-        )
+        // Exclude the request words (and their singularized forms) from the overlap check —
+        // they trivially appear in both the context and any article that mentions the term
+        // (e.g. "university"+"street" in a street article), masking a true mismatch.
+        let requestWords = Set(reqWords).union(Set(reqWords.map(singularize)))
         let overlap = contextWords.intersection(summaryWords).subtracting(requestWords)
 
         let containsRequest = normalizedTitle.contains(req)
@@ -1114,6 +1178,8 @@ enum Wikipedia {
         let termNorm = normalize(term)
 
         // Prefer capitalized words — they're usually proper nouns that disambiguate well.
+        // E.g. for "Marlow" with context "Joseph Conrad …" we pick ["joseph","conrad"] before
+        // generic words like "wandered" or "seaman".
         let capitalWords = combined
             .split(separator: " ").map(String.init)
             .filter { w in
@@ -1123,6 +1189,7 @@ enum Wikipedia {
             .map { normalize($0) }
             .filter { !$0.isEmpty && $0 != termNorm }
 
+        // Fall back to any meaningful words if no capitalized ones survived.
         let fallback = normalize(combined)
             .split(separator: " ").map(String.init)
             .filter { !stopWords.contains($0) && $0.count > 4 && $0 != termNorm }

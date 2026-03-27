@@ -157,8 +157,9 @@ enum Wikipedia {
         // Multi-word phrases that 404 should still get a plain search pass.
         // "Lord of the White Elephants" has no exact page, but Wikipedia search can still
         // resolve it to the concept page "White elephant".
+        // Also covers 2-word abbreviated forms like "St Olav's" → Saint Olaf.
         let looksLikeMeaningfulPhrase = requested.contains(" ")
-            && requested.split(separator: " ").count >= 3
+            && requested.split(separator: " ").count >= 2
         if allBaseNotFound && looksLikeMeaningfulPhrase {
             for query in phraseSearchQueries(for: requested) {
                 if let resolved = await resolveViaSearch(query, requested: query, contextBefore: contextBefore, contextAfter: contextAfter) {

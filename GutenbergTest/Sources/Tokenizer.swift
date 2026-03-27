@@ -181,7 +181,10 @@ enum Tokenizer {
             // --- Vocab (uncommon non-proper words) ---
             let isCommon = commonWords.contains(t.lower)
             let isStop = stopwords.contains(t.lower)
-            if !isCommon && !isStop && !t.startsWithUpper && t.cleaned.count >= 4 {
+            // All-caps tokens (e.g. "BRIC-A-BRAC") are literary emphasis, not proper nouns
+            let letters = t.cleaned.filter(\.isLetter)
+            let isAllCaps = letters.count >= 2 && letters.allSatisfy(\.isUppercase)
+            if !isCommon && !isStop && (!t.startsWithUpper || isAllCaps) && t.cleaned.count >= 4 {
                 // Skip obvious suffix classes
                 let suffixes9 = ["able","ible","ing"]
                 if suffixes9.contains(where: { t.lower.hasSuffix($0) }) && t.cleaned.count <= 9 {
@@ -190,7 +193,8 @@ enum Tokenizer {
                 if seenVocab.insert(t.lower).inserted {
                     let ctx = context(tokens: tokens, pos: i, window: windowSize)
                     results.append(AnnotationCandidate(
-                        phrase: t.cleaned,
+                        // Use lowercase phrase for all-caps tokens so dictionary lookup works
+                        phrase: isAllCaps ? t.lower : t.cleaned,
                         kind: .vocab,
                         position: t.position,
                         contextBefore: ctx.before,

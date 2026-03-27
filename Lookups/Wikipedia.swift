@@ -751,12 +751,21 @@ enum Wikipedia {
 
         // Parenthetical disambiguation scoring: "Mercury (planet)" vs "Mercury (mythology)".
         // A matching parenthetical is strong evidence we have the right sense.
-        if let paren = extractParenthetical(normalizedTitle), !context.isEmpty {
+        // Entertainment parentheticals that don't match context get a heavy penalty so that
+        // "the Whale" (tail of "Whiteness of the Whale") doesn't resolve to "The Whale (2022 film)".
+        let entertainmentParenMarkers: Set<String> = ["film", "movie", "series", "album",
+                                                       "song", "band", "television", "soundtrack"]
+        if let paren = extractParenthetical(title ?? ""), !context.isEmpty {
             let parenWords = Set(normalize(paren).split(separator: " ").map(String.init)).subtracting(stopWords)
             let contextWords = Set(context.split(separator: " ").map(String.init)).subtracting(stopWords)
+            let parenIsEntertainment = !entertainmentParenMarkers.isDisjoint(with: parenWords)
             if !parenWords.isEmpty && !contextWords.isEmpty {
                 if !parenWords.intersection(contextWords).isEmpty {
                     score += 0.28
+                } else if parenIsEntertainment {
+                    // Entertainment article whose genre tag (film/album/series…) doesn't
+                    // appear in the literary context — almost certainly a false positive.
+                    score -= 0.45
                 } else {
                     score -= 0.12
                 }

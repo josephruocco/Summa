@@ -405,6 +405,23 @@ let maxRefsPerBook  = 40
 let maxVocabPerBook = 30
 let commonWords = CommonWordsLoader.set
 
+// MARK: - Score tracking
+
+struct BookRunStats {
+    let slug: String
+    var ok        = 0
+    var notFound  = 0
+    var suppressed = 0
+    var scoreSum  = 0.0
+    var scoreCount = 0
+
+    var total: Int { ok + notFound + suppressed }
+    var okPct: Double { total > 0 ? Double(ok) / Double(total) * 100 : 0 }
+    var avgScore: Double { scoreCount > 0 ? scoreSum / Double(scoreCount) : 0 }
+}
+
+var allBookStats: [BookRunStats] = []
+
 if !demoMode {
     // TSV mode
     print(["bookID","bookTitle","phrase","kind","status","wikiTitle","score","extract","debug"]
@@ -451,6 +468,7 @@ for book in bookList {
         .joined(separator: " ")
     let docContext = [titleDistinctive, authorName].filter { !$0.isEmpty }.joined(separator: " ")
 
+    var bookStats = BookRunStats(slug: book.slug)
     var annotations: [DemoAnnotation] = []
     var seenTerms = Set<String>()
     for candidate in refs {
@@ -466,6 +484,16 @@ for book in bookList {
 
         let icon = result.status == .ok ? "✓" : (result.status == .suppressed ? "~" : "✗")
         log("  \(icon) \(candidate.phrase) → \(result.status.rawValue) \(result.title.map { "[\($0)]" } ?? "") \(result.score.map { String(format: "%.2f", $0) } ?? "")")
+
+        switch result.status {
+        case .ok:
+            bookStats.ok += 1
+            if let s = result.score { bookStats.scoreSum += s; bookStats.scoreCount += 1 }
+        case .notFound, .error:
+            bookStats.notFound += 1
+        case .suppressed:
+            bookStats.suppressed += 1
+        }
 
         if !demoMode {
             print([
@@ -562,7 +590,34 @@ for book in bookList {
         log("  → Wrote \(demoDir)/")
     }
 
+    allBookStats.append(bookStats)
     log("")
 }
+
+// MARK: - Write scores.log
+
+let totalOk         = allBookStats.reduce(0) { $0 + $1.ok }
+let totalNotFound   = allBookStats.reduce(0) { $0 + $1.notFound }
+let totalSuppressed = allBookStats.reduce(0) { $0 + $1.suppressed }
+let totalAll        = totalOk + totalNotFound + totalSuppressed
+let totalScoreSum   = allBookStats.reduce(0.0) { $0 + $1.scoreSum }
+let totalScoreCount = allBookStats.reduce(0) { $0 + $1.scoreCount }
+let overallOkPct    = totalAll > 0 ? Double(totalOk) / Double(totalAll) * 100 : 0
+let overallAvgScore = totalScoreCount > 0 ? totalScoreSum / Double(totalScoreCount) : 0
+
+let timestamp = ISO8601DateFormatter().string(from: Date())
+var logLines: [String] = []
+logLines.append("=== \(timestamp)  ok=\(totalOk)/\(totalAll) (\(String(format:"%.0f", overallOkPct))%)  nf=\(totalNotFound)  sup=\(totalSuppressed)  avgScore=\(String(format:"%.3f", overallAvgScore)) ===")
+for s in allBookStats {
+    let pct = String(format: "%.0f", s.okPct)
+    let avg = String(format: "%.3f", s.avgScore)
+    logLines.append("  \(s.slug.padding(toLength: 20, withPad: " ", startingAt: 0))  ok=\(s.ok)/\(s.total) (\(pct)%)  nf=\(s.notFound)  sup=\(s.suppressed)  avgScore=\(avg)")
+}
+logLines.append("")
+
+let logPath = "\(demoOutputDir)/scores.log"
+let existing = (try? String(contentsOfFile: logPath, encoding: .utf8)) ?? ""
+try? (existing + logLines.joined(separator: "\n")).write(toFile: logPath, atomically: true, encoding: .utf8)
+log("Scores appended to \(logPath)")
 
 log("Done.")

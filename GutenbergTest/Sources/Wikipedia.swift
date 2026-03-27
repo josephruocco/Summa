@@ -219,7 +219,7 @@ enum Wikipedia {
                 if resolved.status == .ok {
                     return suppress(result: resolved, reason: "fallback search result scored too low")
                 }
-                return resolved
+                // Don't propagate error results — fall through to bestSuppressedResult / notFound
             }
         }
 

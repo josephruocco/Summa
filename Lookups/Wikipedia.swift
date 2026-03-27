@@ -104,7 +104,7 @@ enum Wikipedia {
                         return resolved
                     }
                     // 2. Wikipedia search missed — try Bing (scoped to en.wikipedia.org)
-                    if let bingResult = await resolveViaBingSearch(searchTerm, requested: requested, contextBefore: contextBefore, contextAfter: contextAfter),
+                    if let bingResult = await resolveViaBraveSearch(searchTerm, requested: requested, contextBefore: contextBefore, contextAfter: contextAfter),
                        let bingScore = bingResult.score,
                        bingResult.status == .ok,
                        bingScore >= scoreBar {
@@ -443,60 +443,56 @@ enum Wikipedia {
         }
     }
 
-    // MARK: - Bing Web Search fallback
+    // MARK: - Brave Web Search fallback
 
-    /// Calls the Bing Web Search API scoped to en.wikipedia.org, extracts Wikipedia article
+    /// Calls the Brave Search API scoped to en.wikipedia.org, extracts Wikipedia article
     /// titles from the result URLs, and scores each via the existing `scoreCandidate` pipeline.
-    /// Returns nil when no key is configured or no candidate clears the threshold.
-    private static func resolveViaBingSearch(
+    /// Returns nil when BRAVE_SEARCH_API_KEY is not set or no candidate clears the threshold.
+    private static func resolveViaBraveSearch(
         _ term: String,
         requested: String,
         contextBefore: String?,
         contextAfter: String?
     ) async -> WikiResult? {
-        guard let apiKey = ProcessInfo.processInfo.environment["BING_SEARCH_API_KEY"],
+        guard let apiKey = ProcessInfo.processInfo.environment["BRAVE_SEARCH_API_KEY"],
               !apiKey.isEmpty else { return nil }
 
         let q = term.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !q.isEmpty else { return nil }
 
-        let encodedQuery = "\(q) site:en.wikipedia.org"
-        var comps = URLComponents(string: "https://api.bing.microsoft.com/v7.0/search")!
+        var comps = URLComponents(string: "https://api.search.brave.com/res/v1/web/search")!
         comps.queryItems = [
-            URLQueryItem(name: "q",          value: encodedQuery),
-            URLQueryItem(name: "count",      value: "8"),
-            URLQueryItem(name: "mkt",        value: "en-US"),
-            URLQueryItem(name: "responseFilter", value: "Webpages"),
+            URLQueryItem(name: "q",     value: "\(q) site:en.wikipedia.org"),
+            URLQueryItem(name: "count", value: "8"),
         ]
         guard let url = comps.url else { return nil }
 
         var req = URLRequest(url: url)
         req.timeoutInterval = 8
-        req.setValue(apiKey,              forHTTPHeaderField: "Ocp-Apim-Subscription-Key")
-        req.setValue("application/json",  forHTTPHeaderField: "Accept")
+        req.setValue(apiKey,             forHTTPHeaderField: "X-Subscription-Token")
+        req.setValue("application/json", forHTTPHeaderField: "Accept")
 
         do {
             let (data, resp) = try await URLSession.shared.data(for: req)
             guard (resp as? HTTPURLResponse)?.statusCode == 200 else { return nil }
 
-            guard let obj       = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let webPages  = obj["webPages"] as? [String: Any],
-                  let value     = webPages["value"] as? [[String: Any]]
+            guard let obj      = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let web      = obj["web"] as? [String: Any],
+                  let results  = web["results"] as? [[String: Any]]
             else { return nil }
 
             // Extract Wikipedia article titles from result URLs
             // e.g. https://en.wikipedia.org/wiki/Universitetsplassen → "Universitetsplassen"
             var candidates: [SearchCandidate] = []
-            for entry in value {
-                guard let urlStr  = entry["url"]     as? String,
-                      let name    = entry["name"]     as? String,
+            for entry in results {
+                guard let urlStr = entry["url"]   as? String,
                       urlStr.hasPrefix("https://en.wikipedia.org/wiki/") else { continue }
-                let rawSlug   = urlStr.replacingOccurrences(of: "https://en.wikipedia.org/wiki/", with: "")
-                let title     = rawSlug
+                let rawSlug = urlStr.replacingOccurrences(of: "https://en.wikipedia.org/wiki/", with: "")
+                let title   = rawSlug
                     .removingPercentEncoding?
                     .replacingOccurrences(of: "_", with: " ")
-                    ?? name
-                let snippet   = (entry["snippet"] as? String) ?? ""
+                    ?? (entry["title"] as? String ?? "")
+                let snippet = (entry["description"] as? String) ?? ""
                 candidates.append(SearchCandidate(title: title, snippet: snippet))
             }
             guard !candidates.isEmpty else { return nil }

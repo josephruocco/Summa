@@ -96,7 +96,7 @@ enum Wikipedia {
                     let searchTerm = isSingleProperNoun
                         ? requested
                         : (contextAugmentedQuery(requested, contextBefore: contextBefore, contextAfter: contextAfter) ?? requested)
-                    let scoreBar = max(0.62, directScore + 0.05)
+                    let scoreBar = 0.62
                     // 1. Try Wikipedia keyword search
                     if let resolved = await resolveViaSearch(searchTerm, requested: requested, contextBefore: contextBefore, contextAfter: contextAfter),
                        let resolvedScore = resolved.score,
@@ -200,13 +200,13 @@ enum Wikipedia {
         // Fall back to search if disambiguation was detected, or if a silent redirect was
         // detected. A pure 404 with no redirect still skips search to avoid junk.
         if hitDisambiguation || gotSilentRedirect || hitSuspiciousDirect {
-            // For single proper nouns that caused disambiguation we use a context-augmented
-            // query — capitalised words from the wider context (author name, nearby proper
-            // nouns) anchor the search to the right sense without pulling in generic literary
-            // words.  For silent redirects and non-proper-noun terms we keep the bare query
-            // since Wikipedia's own relevance ranking works better there.
+            // For single proper nouns, a plain search is usually better than a context-augmented
+            // one after a disambiguation hit. Queries like "Christiania Knut Hamsun Hunger"
+            // can bury the canonical alias target ("Oslo") under history/meta pages.
             let searchTerm: String
-            if hitDisambiguation {
+            if hitDisambiguation && isSingleProperNoun {
+                searchTerm = requested
+            } else if hitDisambiguation {
                 searchTerm = contextAugmentedQuery(requested, contextBefore: contextBefore, contextAfter: contextAfter) ?? requested
             } else {
                 searchTerm = isSingleProperNoun
@@ -369,7 +369,11 @@ enum Wikipedia {
                 contextBefore: contextBefore,
                 contextAfter: contextAfter
             )
-            let topCandidates = Array(ranked.prefix(3))
+            // Single proper nouns and title-cased phrases often need deeper verification because
+            // the canonical target can rank below surface-form lookalikes in the raw search list
+            // (e.g. "Christiania" -> "Oslo"). Fetch more summaries before we suppress.
+            let candidateLimit = requested.contains(where: { $0.isUppercase }) ? 8 : 3
+            let topCandidates = Array(ranked.prefix(candidateLimit))
             var resolved: [(WikiResult, Double)] = []
 
             for candidate in topCandidates {
@@ -814,7 +818,14 @@ enum Wikipedia {
             }
         }
 
-        if requestedHasUppercase, reqWords.count == 1, titleOverlap > 0, titleWords.count >= 2 {
+        // Prefix-title bonus: single-word proper nouns often resolve to a canonical article
+        // whose title starts with the requested token plus a qualifier (e.g. "Hanoverian Army").
+        // Do not give this bonus to suffix/contains matches like "Freetown Christiania".
+        if requestedHasUppercase,
+           reqWords.count == 1,
+           let requestedWord = reqWordList.first,
+           titleWordList.first == requestedWord,
+           titleWords.count >= 2 {
             score += 0.24
         }
 
@@ -874,8 +885,12 @@ enum Wikipedia {
             }
         }
 
-        // "List of X" articles are never useful for contextual lookups.
-        if normalizedTitle.hasPrefix("list of") {
+        // Meta/index pages are almost never the right destination for contextual lookups.
+        if normalizedTitle.hasPrefix("list of")
+            || normalizedTitle.hasPrefix("timeline of")
+            || normalizedTitle.hasPrefix("history of")
+            || normalizedTitle.hasPrefix("outline of")
+            || normalizedTitle.hasPrefix("index of") {
             score -= 0.40
         }
 
@@ -912,6 +927,15 @@ enum Wikipedia {
         let sportsWords: Set<String> = ["baseball", "basketball", "football", "club", "team", "league", "season", "player"]
         let biographyWords: Set<String> = ["actor", "actress", "politician", "rapper", "singer", "footballer", "cricketer", "minister", "coach", "player", "born"]
         let literaryRoleWords: Set<String> = ["poet", "writer", "author", "novelist", "philosopher", "critic", "theologian", "historian"]
+
+        if requestedHasUppercase,
+           reqWords.count == 1,
+           let requestedWord = reqWordList.first,
+           titleWordList.last == requestedWord,
+           titleWordList.count >= 2,
+           !literaryRoleWords.isDisjoint(with: summaryWords) {
+            score += 0.20
+        }
 
         if !sportsWords.isDisjoint(with: summaryWords), contextSummaryOverlap.isEmpty {
             score -= 0.40

@@ -468,9 +468,22 @@ enum Wikipedia {
         let q = term.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !q.isEmpty else { return nil }
 
+        // Replace historical city names with modern equivalents so Brave's index
+        // can resolve them correctly. "University Street Christiania" → "University Street Oslo"
+        let historicalCityAliases: [String: String] = [
+            "Christiania": "Oslo", "Kristiania": "Oslo",
+            "Constantinople": "Istanbul", "Leningrad": "Saint Petersburg",
+            "Bombay": "Mumbai", "Calcutta": "Kolkata", "Peking": "Beijing",
+            "Saigon": "Ho Chi Minh City", "Rangoon": "Yangon",
+        ]
+        var normalizedQ = q
+        for (historical, modern) in historicalCityAliases {
+            normalizedQ = normalizedQ.replacingOccurrences(of: historical, with: modern)
+        }
+
         var comps = URLComponents(string: "https://api.search.brave.com/res/v1/web/search")!
         comps.queryItems = [
-            URLQueryItem(name: "q",     value: "\(q) site:en.wikipedia.org"),
+            URLQueryItem(name: "q",     value: "\(normalizedQ) site:en.wikipedia.org"),
             URLQueryItem(name: "count", value: "8"),
         ]
         guard let url = comps.url else { return nil }
@@ -747,30 +760,40 @@ enum Wikipedia {
             .replacingOccurrences(of: "'s", with: "")     // trailing: "Coleridge's"
             .replacingOccurrences(of: "\u{2019}s", with: "")
         let req = normalize(reqStripped)
+        // Expanded form for honorific abbreviations ("st olav" → "saint olav")
+        // Only expands leading "st/dr/mt/ft" in multi-word phrases to avoid confusing "Street"
+        let reqExpanded = honorificExpansions(req).last ?? req
         let normalizedTitle = normalize(title ?? "")
         let context = normalize([contextBefore, contextAfter].compactMap { $0 }.joined(separator: " "))
         let summary = normalize([snippet, extract].compactMap { $0 }.joined(separator: " "))
 
         var score = 0.0
 
+        // Use whichever form (original or honorific-expanded) matches the title better
+        let reqForTitle = (normalizedTitle.contains(reqExpanded) || reqExpanded.contains(normalizedTitle)) ? reqExpanded : req
+
         if normalizedTitle == req, !req.isEmpty {
             score += 0.42
-        } else if normalizedTitle.hasPrefix(req) || normalizedTitle.contains(req) || req.contains(normalizedTitle) {
+        } else if normalizedTitle.hasPrefix(reqForTitle) || normalizedTitle.contains(reqForTitle) || reqForTitle.contains(normalizedTitle) {
             score += 0.24
         } else {
             score -= 0.12
         }
 
-        score += min(0.18, Double(commonPrefixLen(normalizedTitle, req)) * 0.03)
+        score += min(0.18, Double(commonPrefixLen(normalizedTitle, reqForTitle)) * 0.03)
 
         let reqWordList = req.split(separator: " ").map(String.init)
+        let reqExpandedWordList = reqExpanded.split(separator: " ").map(String.init)
         let titleWordList = normalizedTitle.split(separator: " ").map(String.init)
         let reqWords = Set(reqWordList)
+        let reqExpandedWords = Set(reqExpandedWordList)
         let titleWords = Set(titleWordList)
         let singularReqWords = Set(reqWordList.map(singularize))
         let singularTitleWords = Set(titleWordList.map(singularize))
         let summaryWords = Set(summary.split(separator: " ").map(String.init))
-        let titleOverlap = reqWords.intersection(titleWords).count
+        // Use the max overlap between original and expanded forms
+        let titleOverlap = max(reqWords.intersection(titleWords).count,
+                               reqExpandedWords.intersection(titleWords).count)
         let singularTitleOverlap = singularReqWords.intersection(singularTitleWords).count
         let summaryOverlap = reqWords.intersection(summaryWords).count
         let requestedHasUppercase = requested.contains { $0.isUppercase }
@@ -960,6 +983,19 @@ enum Wikipedia {
         return max(0, min(1, score))
     }
 
+    /// Expands leading honorific abbreviations for better title matching.
+    /// Only fires when "st" is the FIRST word of a multi-word phrase (Saint, not Street).
+    /// "St Olav's" → ["st olavs", "saint olavs"]
+    /// "University St" → ["university st"]   (last-word "st" is Street, left unchanged)
+    private static func honorificExpansions(_ normalized: String) -> [String] {
+        let words = normalized.split(separator: " ").map(String.init)
+        guard words.count >= 2, let first = words.first else { return [normalized] }
+        let expansions: [String: String] = ["st": "saint", "dr": "doctor", "mt": "mount", "ft": "fort"]
+        guard let expanded = expansions[first] else { return [normalized] }
+        let expandedForm = ([expanded] + words.dropFirst()).joined(separator: " ")
+        return [normalized, expandedForm]
+    }
+
     private static func passesLexicalGate(
         requested: String,
         candidateTitle: String,
@@ -977,6 +1013,13 @@ enum Wikipedia {
 
         if !reqWords.intersection(titleWords).isEmpty {
             return true
+        }
+
+        // Try honorific expansion: "st olav" → "saint olav" so "Saint Olaf" passes gate
+        for expanded in honorificExpansions(req) where expanded != req {
+            let expandedWords = Set(expanded.split(separator: " ").map(String.init))
+            if !expandedWords.intersection(titleWords).isEmpty { return true }
+            if normalizedTitle.contains(expanded) || expanded.contains(normalizedTitle) { return true }
         }
 
         if reqWords.count == 1, let onlyWord = reqWords.first, normalizedSnippet.contains(onlyWord) {

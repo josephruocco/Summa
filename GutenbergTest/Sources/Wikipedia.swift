@@ -96,21 +96,12 @@ enum Wikipedia {
                     let searchTerm = isSingleProperNoun
                         ? requested
                         : (contextAugmentedQuery(requested, contextBefore: contextBefore, contextAfter: contextAfter) ?? requested)
-                    let scoreBar = 0.62
-
-                    // 1. Try Wikipedia keyword search
+                    // resolveViaSearch now tries Brave first, Wikipedia search second
                     if let resolved = await resolveViaSearch(searchTerm, requested: requested, contextBefore: contextBefore, contextAfter: contextAfter),
                        let resolvedScore = resolved.score,
                        resolved.status == .ok,
-                       resolvedScore >= scoreBar {
+                       resolvedScore >= max(0.62, directScore + 0.05) {
                         return resolved
-                    }
-                    // 2. Wikipedia search missed — try Bing (scoped to en.wikipedia.org)
-                    if let bingResult = await resolveViaBraveSearch(searchTerm, requested: requested, contextBefore: contextBefore, contextAfter: contextAfter),
-                       let bingScore = bingResult.score,
-                       bingResult.status == .ok,
-                       bingScore >= scoreBar {
-                        return bingResult
                     }
                 }
 
@@ -328,6 +319,16 @@ enum Wikipedia {
     ) async -> WikiResult? {
         let q = term.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !q.isEmpty else { return nil }
+
+        // Brave Search finds the right Wikipedia page title via a real web index —
+        // much more semantically accurate than Wikipedia's own keyword search.
+        // Try it first; fall through to Wikipedia search if key is absent or no hit.
+        if let braveResult = await resolveViaBraveSearch(q, requested: requested,
+                                                         contextBefore: contextBefore,
+                                                         contextAfter: contextAfter) {
+            return braveResult
+        }
+
         guard let searchURL = makeSearchURL(query: q, limit: 6) else { return nil }
 
         var req = URLRequest(url: searchURL)

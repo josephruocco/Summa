@@ -95,11 +95,20 @@ enum Wikipedia {
                     let searchTerm = isSingleProperNoun
                         ? requested
                         : (contextAugmentedQuery(requested, contextBefore: contextBefore, contextAfter: contextAfter) ?? requested)
+                    let scoreBar = max(0.62, directScore + 0.05)
+                    // 1. Try Wikipedia keyword search
                     if let resolved = await resolveViaSearch(searchTerm, requested: requested, contextBefore: contextBefore, contextAfter: contextAfter),
                        let resolvedScore = resolved.score,
                        resolved.status == .ok,
-                       resolvedScore >= max(0.62, directScore + 0.05) {
+                       resolvedScore >= scoreBar {
                         return resolved
+                    }
+                    // 2. Wikipedia search missed — try Bing (scoped to en.wikipedia.org)
+                    if let bingResult = await resolveViaBingSearch(searchTerm, requested: requested, contextBefore: contextBefore, contextAfter: contextAfter),
+                       let bingScore = bingResult.score,
+                       bingResult.status == .ok,
+                       bingScore >= scoreBar {
+                        return bingResult
                     }
                 }
 
@@ -431,6 +440,102 @@ enum Wikipedia {
             return best
         } catch {
             return WikiResult(status: .error, requested: q, title: nil, extract: "Wikipedia search failed: \(error.localizedDescription)", pageURL: nil, thumbnailURL: nil, debug: "search error \(error)", score: nil)
+        }
+    }
+
+    // MARK: - Bing Web Search fallback
+
+    /// Calls the Bing Web Search API scoped to en.wikipedia.org, extracts Wikipedia article
+    /// titles from the result URLs, and scores each via the existing `scoreCandidate` pipeline.
+    /// Returns nil when no key is configured or no candidate clears the threshold.
+    private static func resolveViaBingSearch(
+        _ term: String,
+        requested: String,
+        contextBefore: String?,
+        contextAfter: String?
+    ) async -> WikiResult? {
+        guard let apiKey = ProcessInfo.processInfo.environment["BING_SEARCH_API_KEY"],
+              !apiKey.isEmpty else { return nil }
+
+        let q = term.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !q.isEmpty else { return nil }
+
+        let encodedQuery = "\(q) site:en.wikipedia.org"
+        var comps = URLComponents(string: "https://api.bing.microsoft.com/v7.0/search")!
+        comps.queryItems = [
+            URLQueryItem(name: "q",          value: encodedQuery),
+            URLQueryItem(name: "count",      value: "8"),
+            URLQueryItem(name: "mkt",        value: "en-US"),
+            URLQueryItem(name: "responseFilter", value: "Webpages"),
+        ]
+        guard let url = comps.url else { return nil }
+
+        var req = URLRequest(url: url)
+        req.timeoutInterval = 8
+        req.setValue(apiKey,              forHTTPHeaderField: "Ocp-Apim-Subscription-Key")
+        req.setValue("application/json",  forHTTPHeaderField: "Accept")
+
+        do {
+            let (data, resp) = try await URLSession.shared.data(for: req)
+            guard (resp as? HTTPURLResponse)?.statusCode == 200 else { return nil }
+
+            guard let obj       = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let webPages  = obj["webPages"] as? [String: Any],
+                  let value     = webPages["value"] as? [[String: Any]]
+            else { return nil }
+
+            // Extract Wikipedia article titles from result URLs
+            // e.g. https://en.wikipedia.org/wiki/Universitetsplassen → "Universitetsplassen"
+            var candidates: [SearchCandidate] = []
+            for entry in value {
+                guard let urlStr  = entry["url"]     as? String,
+                      let name    = entry["name"]     as? String,
+                      urlStr.hasPrefix("https://en.wikipedia.org/wiki/") else { continue }
+                let rawSlug   = urlStr.replacingOccurrences(of: "https://en.wikipedia.org/wiki/", with: "")
+                let title     = rawSlug
+                    .removingPercentEncoding?
+                    .replacingOccurrences(of: "_", with: " ")
+                    ?? name
+                let snippet   = (entry["snippet"] as? String) ?? ""
+                candidates.append(SearchCandidate(title: title, snippet: snippet))
+            }
+            guard !candidates.isEmpty else { return nil }
+
+            // Re-rank with the same scoring used for Wikipedia search candidates
+            let ranked = rankCandidates(
+                requested: requested,
+                candidates: candidates,
+                contextBefore: contextBefore,
+                contextAfter: contextAfter
+            )
+            let topCandidates = Array(ranked.prefix(3))
+            var resolved: [(WikiResult, Double)] = []
+
+            for candidate in topCandidates {
+                guard let summary = await fetchSummary(title: candidate.title) else { continue }
+                let score = scoreCandidate(
+                    requested: requested,
+                    title: candidate.title,
+                    snippet: candidate.snippet,
+                    extract: summary.extract,
+                    contextBefore: contextBefore,
+                    contextAfter: contextAfter,
+                    status: summary.status
+                )
+                var enriched = summary
+                enriched.requested = requested
+                enriched.score = score
+                resolved.append((enriched, score))
+            }
+            guard !resolved.isEmpty else { return nil }
+
+            let sorted = resolved.sorted { $0.1 > $1.1 }
+            let best   = sorted[0].0
+            guard (best.score ?? 0) >= 0.58, best.status == .ok else { return nil }
+            return best
+
+        } catch {
+            return nil
         }
     }
 

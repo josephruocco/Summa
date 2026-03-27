@@ -92,8 +92,15 @@ enum Tokenizer {
 
                     // Don't extend across sentence boundaries.
                     // "Destiny. For the rest" — "Destiny" should not absorb "For".
-                    let prevRaw = tokens[j - 1].raw
-                    let prevEndsSentence = prevRaw.last.map { ".?!".contains($0) } ?? false
+                    // Exception: known honorific/title abbreviations like "St.", "Dr.", "Mt."
+                    // are not sentence terminators — "St. Olav's" should stay one phrase.
+                    let honorifics: Set<String> = ["st","dr","mr","mrs","ms","mt","rev",
+                                                   "gen","col","lt","prof","sgt","sr","jr"]
+                    let prevRaw     = tokens[j - 1].raw
+                    let prevCleaned = tokens[j - 1].cleaned.lowercased()
+                    let prevIsHonorific = honorifics.contains(prevCleaned)
+                    let prevEndsSentence = !prevIsHonorific
+                        && (prevRaw.last.map { ".?!".contains($0) } ?? false)
                     guard !prevEndsSentence else { break }
 
                     // Treat "and" as a list boundary once we already have a complete

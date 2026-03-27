@@ -23,6 +23,7 @@ enum Wikipedia {
     // In-memory negative cache: terms confirmed to have no Wikipedia article are skipped
     // on subsequent page scans without re-querying. Keyed on normalized term.
     private nonisolated(unsafe) static var notFoundCache: Set<String> = []
+    private nonisolated(unsafe) static var envCache: [String: String]? = nil
 
     static func summary(_ term: String) async -> String {
         let result = await lookup(term)
@@ -454,7 +455,7 @@ enum Wikipedia {
         contextBefore: String?,
         contextAfter: String?
     ) async -> WikiResult? {
-        guard let apiKey = ProcessInfo.processInfo.environment["BRAVE_SEARCH_API_KEY"],
+        guard let apiKey = envValue("BRAVE_SEARCH_API_KEY"),
               !apiKey.isEmpty else { return nil }
 
         let q = term.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1122,5 +1123,50 @@ enum Wikipedia {
             return String(s.dropLast())
         }
         return s
+    }
+
+    private static func envValue(_ key: String) -> String? {
+        if let value = ProcessInfo.processInfo.environment[key], !value.isEmpty {
+            return value
+        }
+        let env = loadDotEnv()
+        guard let value = env[key], !value.isEmpty else { return nil }
+        return value
+    }
+
+    private static func loadDotEnv() -> [String: String] {
+        if let cached = envCache { return cached }
+
+        let fm = FileManager.default
+        let candidates = [
+            fm.currentDirectoryPath + "/.env",
+            fm.currentDirectoryPath + "/../.env",
+            NSHomeDirectory() + "/Downloads/Summa-main/.env"
+        ]
+
+        for path in candidates {
+            guard fm.fileExists(atPath: path),
+                  let text = try? String(contentsOfFile: path, encoding: .utf8) else { continue }
+
+            var env: [String: String] = [:]
+            for rawLine in text.split(whereSeparator: \.isNewline) {
+                let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
+                if line.isEmpty || line.hasPrefix("#") { continue }
+                guard let eq = line.firstIndex(of: "=") else { continue }
+                let key = String(line[..<eq]).trimmingCharacters(in: .whitespacesAndNewlines)
+                var value = String(line[line.index(after: eq)...]).trimmingCharacters(in: .whitespacesAndNewlines)
+                if (value.hasPrefix("\"") && value.hasSuffix("\"")) || (value.hasPrefix("'") && value.hasSuffix("'")) {
+                    value = String(value.dropFirst().dropLast())
+                }
+                if !key.isEmpty {
+                    env[key] = value
+                }
+            }
+            envCache = env
+            return env
+        }
+
+        envCache = [:]
+        return [:]
     }
 }

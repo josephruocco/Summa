@@ -569,7 +569,28 @@ enum Wikipedia {
         }
         guard !resolvedCandidates.isEmpty else { return nil }
 
-        let sorted = resolvedCandidates.sorted { $0.1 > $1.1 }
+        var sorted = resolvedCandidates.sorted { $0.1 > $1.1 }
+
+        // When the request looks like a saint/honorific name ("St X", "Saint X"),
+        // demote institution titles that are merely named after the saint rather than
+        // being the article about the saint/person.  E.g. "St Olav's" should prefer
+        // "Olaf II of Norway" over "St. Olav's University Hospital".
+        let reqNormForInst = normalize(stripPossessive(requested.trimmingCharacters(in: .whitespacesAndNewlines)))
+        let looksLikeSaintQuery = reqNormForInst.hasPrefix("saint ") || reqNormForInst.hasPrefix("st ")
+        if looksLikeSaintQuery {
+            let institutionWords = ["hospital", "university", "church", "school",
+                                    "college", "cathedral", "foundation", "clinic",
+                                    "station", "airport", "bridge", "street", "avenue"]
+            sorted = sorted.sorted { lhs, rhs in
+                let lTitle = lhs.0.title?.lowercased() ?? ""
+                let rTitle = rhs.0.title?.lowercased() ?? ""
+                let lIsInst = institutionWords.contains { lTitle.contains($0) }
+                let rIsInst = institutionWords.contains { rTitle.contains($0) }
+                if lIsInst != rIsInst { return !lIsInst } // non-institutions first
+                return lhs.1 > rhs.1
+            }
+        }
+
         var best      = sorted[0].0
         var bestScore = sorted[0].1
         let bestSnippet = sorted[0].2
@@ -579,7 +600,7 @@ enum Wikipedia {
         // trust Brave's ranking and floor the score to 0.60.
         // Word-level matching handles transliteration variants like "St Olav's" → Saint Olaf
         // where the snippet says "also known as Olav" (not "Olavs").
-        let reqNorm   = normalize(stripPossessive(requested.trimmingCharacters(in: .whitespacesAndNewlines)))
+        let reqNorm   = reqNormForInst  // already computed above
         let reqExp    = honorificExpansions(reqNorm).last ?? reqNorm
         let normSnippet = normalize(bestSnippet)
         // Strip honorific abbreviations so "st" alone doesn't match unrelated snippets.

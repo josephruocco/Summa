@@ -489,7 +489,7 @@ for book in bookList {
         case .ok:
             bookStats.ok += 1
             if let s = result.score { bookStats.scoreSum += s; bookStats.scoreCount += 1 }
-        case .notFound, .error:
+        case .notFound, .error, .disambiguation:
             bookStats.notFound += 1
         case .suppressed:
             bookStats.suppressed += 1

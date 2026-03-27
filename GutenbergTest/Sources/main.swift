@@ -374,6 +374,22 @@ let defaultBooks: [BookSpec] = [
     BookSpec(id: 174,  title: "The Picture of Dorian Gray", slug: "dg_ch01",
              chapterTitle: "The Picture of Dorian Gray, Chapter I — Oscar Wilde", maxChars: 0,
              startAnchor: "chap01", endAnchor: "chap02"),
+    // Wuthering Heights: Chapter I (Lockwood visits Wuthering Heights, meets Heathcliff)
+    BookSpec(id: 768,  title: "Wuthering Heights",          slug: "wh_ch01",
+             chapterTitle: "Wuthering Heights, Chapter I — Emily Brontë",         maxChars: 0,
+             chapterDivIndex: 0),
+    // Beyond Good and Evil: Part One — On the Prejudices of Philosophers
+    BookSpec(id: 4363, title: "Beyond Good and Evil",       slug: "bge_ch01",
+             chapterTitle: "Beyond Good and Evil, Part I — Friedrich Nietzsche",  maxChars: 0,
+             startAnchor: "link2HCH0001", endAnchor: "link2HCH0002"),
+    // Montaigne: Of Experience (Essays, Book III, Chapter XIII)
+    BookSpec(id: 3600, title: "Of Experience",              slug: "e_oe",
+             chapterTitle: "Of Experience — Michel de Montaigne",                 maxChars: 0,
+             startAnchor: "link2HCH0106", endAnchor: "link2H_4_0128"),
+    // Pride and Prejudice: Chapter I
+    BookSpec(id: 1342, title: "Pride and Prejudice",        slug: "pp_ch01",
+             chapterTitle: "Pride and Prejudice, Chapter I — Jane Austen",        maxChars: 0,
+             startAnchor: "Chapter_I", endAnchor: "CHAPTER_II"),
 ]
 
 let args = Array(CommandLine.arguments.dropFirst())

@@ -610,8 +610,16 @@ enum Wikipedia {
         let reqExpContentWords = Set(reqExp.split(separator: " ").map { singularize(String($0)) })
             .subtracting(honorificPrefixes)
         let snippetWords = Set(normSnippet.split(separator: " ").map { singularize(String($0)) })
-        let hasSnippetEvidence = !reqContentWords.intersection(snippetWords).isEmpty
-            || !reqExpContentWords.intersection(snippetWords).isEmpty
+        // For multi-word requests (≥2 content words) require at least 2 snippet words to match,
+        // so a single shared word like "jove" in "Xenodon pulcher" or "pulcher" in a species
+        // article doesn't floor an otherwise low-scoring result to 0.60.
+        // Single-word requests only need 1 match (the word itself) — already handled by alias scoring.
+        let snippetMatchCount = reqContentWords.intersection(snippetWords).count
+            + reqExpContentWords.subtracting(reqContentWords).intersection(snippetWords).count
+        let reqContentWordCount = max(reqContentWords.count, reqExpContentWords.count)
+        let hasSnippetEvidence = reqContentWordCount <= 1
+            ? snippetMatchCount >= 1
+            : snippetMatchCount >= 2
         if hasSnippetEvidence, bestScore < 0.60, best.status == .ok {
             bestScore = 0.60
             best.score = bestScore
@@ -876,11 +884,31 @@ enum Wikipedia {
         // boundaries, so "Christiania," or "Christiania." are still matched.
         let rawBody = [(snippet ?? ""), (extract ?? "")].joined(separator: " ").lowercased()
         let rawBodyWords = Set(rawBody.components(separatedBy: CharacterSet.alphanumerics.inverted).filter { !$0.isEmpty })
+        // Alias/redirect: use the Wikipedia EXTRACT ONLY (not the Brave snippet) to avoid
+        // circular confirmation — Brave snippets always contain the search term by definition.
+        // Require the term to appear early (first 300 chars) OR at least twice in the extract.
+        // Keeps "Christiania" → Oslo (first sentence mentions Christiania) and "Siam" → Thailand,
+        // but suppresses "Romish" → "Ex officio oath" (incidental mention) and fictional names
+        // like "Ylajali" → "Hunger (Hamsun novel)" (not mentioned in article intro at all).
+        let extractBody = (extract ?? "").lowercased()
+        let extractBodyWords = Set(extractBody.components(separatedBy: CharacterSet.alphanumerics.inverted).filter { !$0.isEmpty })
+        // Alias/redirect detection — use only the Wikipedia EXTRACT (not Brave snippet) to
+        // avoid circular confirmation. Two ways to qualify:
+        // 1. The term appears verbatim in the extract (e.g. "Christiania" in Oslo's article).
+        // 2. The term is a spelling variant of a title word — ≥5-char common prefix covering
+        //    ≥60% of the shorter word (e.g. "Alleghanies" ↔ "allegheny" share "allegh").
+        //    This handles archaic/variant spellings where the extract uses the modern form.
+        let isSpellingVariant = titleWordList.contains { titleWord in
+            guard titleWord.count >= 4 else { return false }
+            let prefLen = commonPrefixLen(req, titleWord)
+            return prefLen >= 5
+                && Double(prefLen) / Double(min(req.count, titleWord.count)) >= 0.60
+        }
         let isAliasMatch = requestedHasUppercase
             && !req.contains(" ")
             && !req.isEmpty
             && titleOverlap == 0
-            && (summaryWords.contains(req) || rawBodyWords.contains(req))
+            && (extractBodyWords.contains(req) || isSpellingVariant)
 
         // Length mismatch penalty — skipped for alias matches since title divergence is expected
         if !isAliasMatch {

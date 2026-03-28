@@ -32,10 +32,23 @@ enum Tokenizer {
         "oh","ah","alas","phew","ugh","ha","hey","eh","fie","lo","hark",
         "tut","pshaw","hurrah","whoa","hush","bah","pff","pfft","gosh",
         // Structural document headers — not look-uppable proper nouns
-        "chapter","part","section","prologue","epilogue","preface","appendix"
+        "chapter","part","section","prologue","epilogue","preface","appendix",
+        // Archaic adverbs/conjunctions — never proper nouns despite rare capitalisation
+        "whence","wherefore","thence","hence","henceforth","thereof","wherein","hereby",
+        "thereby","herein","therewith","whereby","thereafter","heretofore","nevertheless",
+        "notwithstanding","forthwith","thereupon","whereupon","hereafter","inasmuch"
     ]
 
     private static let phraseConnectors: Set<String> = ["of","the","and","de","la","da","van","von"]
+
+    /// Words that should never EXTEND a proper-noun phrase even when capitalised.
+    /// "Harry, Where are you?" tokenises "Harry" then "Where" — "Where" must not extend
+    /// the phrase to "Harry Where". These are question words and dialogue fillers that
+    /// happen to be capitalised at the start of a new clause.
+    private static let phraseExtensionTerminators: Set<String> = [
+        "where","when","why","how","what","which","who","whom","whose",
+        "well","yet","also","too","then","though","although","however",
+    ]
 
     private static let refCommonAllow: Set<String> = [
         "hook","point","park","square","street","st","avenue","ave","road","rd","lane","ln",
@@ -100,7 +113,7 @@ enum Tokenizer {
                     let prevCleaned = tokens[j - 1].cleaned.lowercased()
                     let prevIsHonorific = honorifics.contains(prevCleaned)
                     let prevEndsSentence = !prevIsHonorific
-                        && (prevRaw.last.map { ".?!".contains($0) } ?? false)
+                        && (prevRaw.last.map { ".?!,;:".contains($0) } ?? false)
                     guard !prevEndsSentence else { break }
 
                     // Treat "and" as a list boundary once we already have a complete
@@ -134,6 +147,9 @@ enum Tokenizer {
                     }
 
                     guard uIsCapitalized || connectorAllowed || uIsAllowed else { break }
+                    // Don't extend past question words / dialogue fillers even when capitalised.
+                    // "Harry, Where are you?" → "Harry" only; "Harry Why" → "Harry" only.
+                    if phraseExtensionTerminators.contains(u.lower) { break }
                     // Don't extend when next token is same word as last
                     if u.lower == parts.last?.lowercased() { break }
 
@@ -148,6 +164,25 @@ enum Tokenizer {
 
                 let phrase = parts.joined(separator: " ")
                 let phraseLower = phrase.lowercased()
+
+                // Skip ALL-CAPS multi-word phrases that are ebook section headers, not proper nouns.
+                // e.g. "WHO HE IS", "MEANS OF MEANS", "INSPIRING GENII", "HOW COULD".
+                // Legitimate Latin/foreign phrases like "DE OMNIBUS DUBITANDUM" pass because
+                // they contain no English stopwords and their first word isn't a common English word.
+                if parts.count >= 2 {
+                    let allPartsAllCaps = parts.allSatisfy { p in
+                        let letters = p.filter { $0.isLetter }
+                        return letters.count >= 2 && letters.allSatisfy { $0.isUppercase }
+                    }
+                    if allPartsAllCaps {
+                        let phraseWordSet = Set(parts.map { $0.lowercased() })
+                        let hasEnglishStopword = !phraseWordSet.isDisjoint(with: stopwords)
+                        let firstWordIsCommon = parts.first.map { commonWords.contains($0.lowercased()) } ?? false
+                        if hasEnglishStopword || firstWordIsCommon {
+                            i = j; continue
+                        }
+                    }
+                }
 
                 if parts.count == 1 {
                     // Single-word: skip if it's a common word (unless proper noun in a

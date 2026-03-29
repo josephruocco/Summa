@@ -373,8 +373,15 @@ enum Wikipedia {
         Phrase: "\(phrase)"
         Context: "…\(truncatedContext)…"
 
-        What Wikipedia article title does this phrase most likely refer to?
-        Reply with ONLY the exact Wikipedia article title (e.g. "Crates of Thebes", "Karl Johans gate", "Catholic Church").
+        What Wikipedia article title does THIS SPECIFIC PHRASE most likely refer to?
+        IMPORTANT: annotate the phrase itself, not other entities mentioned nearby in the context.
+        Examples:
+          "Venetians" in an art context → "Venetian painting"
+          "Romish" → "Catholic Church"
+          "Great Jove" → "Jupiter (god)"
+          "Carl Johann Street" → "Karl Johans gate"
+          "Crates" in a philosophy context → "Crates of Thebes"
+        Reply with ONLY the exact Wikipedia article title.
         Reply "none" if:
         - It is a common word or expression (e.g. goodbye, unconsciously, well)
         - It is a minor fictional character with no dedicated Wikipedia article (e.g. Lady Lucas, Mr Morris, Lizzy Bennet)
@@ -1246,6 +1253,18 @@ enum Wikipedia {
                                    "television", "performances", "chronology", "recordings"]
         if aggregationSuffixes.contains(where: { normalizedTitle.hasSuffix($0) }) {
             score -= 0.50
+        }
+
+        // Political-movement suffix penalty: titles like "Venetian nationalism", "Catalan separatism"
+        // are about modern political movements — rarely the right match for literary/classical refs.
+        // Only apply when the query itself contains no political keywords.
+        let politicalSuffixes = ["nationalism", "separatism", "independence movement",
+                                 "irredentism", "autonomy movement"]
+        let reqLower = req.lowercased()
+        if politicalSuffixes.contains(where: { normalizedTitle.hasSuffix($0) }),
+           !reqLower.contains("nation") && !reqLower.contains("politic") &&
+           !reqLower.contains("independen") && !reqLower.contains("separati") {
+            score -= 0.55
         }
 
         // "Named-after" penalty: single-word query where the title starts with the exact

@@ -390,6 +390,28 @@ let defaultBooks: [BookSpec] = [
     BookSpec(id: 1342, title: "Pride and Prejudice",        slug: "pp_ch01",
              chapterTitle: "Pride and Prejudice, Chapter I — Jane Austen",        maxChars: 0,
              startAnchor: "Chapter_I", endAnchor: "CHAPTER_II"),
+
+    // ── 5 additional test books ──────────────────────────────────────────────
+    // Ulysses: Episode 1 "Telemachus" (Stephen on the Martello tower)
+    BookSpec(id: 4300, title: "Ulysses",                    slug: "ulysses_ch01",
+             chapterTitle: "Ulysses, Episode 1 — James Joyce",                    maxChars: 0,
+             startAnchor: "chap01", endAnchor: "chap02"),
+    // Anna Karenina: Part I Chapter I (Oblonsky household in chaos)
+    BookSpec(id: 1399, title: "Anna Karenina",              slug: "ak_ch01",
+             chapterTitle: "Anna Karenina, Part I Chapter I — Leo Tolstoy",       maxChars: 0,
+             startAnchor: "chap01", endAnchor: "chap02"),
+    // Jane Eyre: Chapter I (young Jane at Gateshead)
+    BookSpec(id: 1260, title: "Jane Eyre",                  slug: "je_ch01",
+             chapterTitle: "Jane Eyre, Chapter I — Charlotte Brontë",             maxChars: 0,
+             startAnchor: "chap01", endAnchor: "chap02"),
+    // Great Expectations: Chapter I (Pip in the churchyard, meets Magwitch)
+    BookSpec(id: 1400, title: "Great Expectations",         slug: "ge_ch01",
+             chapterTitle: "Great Expectations, Chapter I — Charles Dickens",     maxChars: 0,
+             startAnchor: "chap01", endAnchor: "chap02"),
+    // Hamlet: Act I Scene I (guards on the battlements, Ghost appears)
+    BookSpec(id: 1524, title: "Hamlet",                     slug: "hamlet_act1",
+             chapterTitle: "Hamlet, Act I — William Shakespeare",                 maxChars: 0,
+             startAnchor: "sceneI_8.1", endAnchor: "sceneII_8.1"),
 ]
 
 let args = Array(CommandLine.arguments.dropFirst())

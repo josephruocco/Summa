@@ -6,7 +6,7 @@
   { "bookId": 8387, "phrase": "Kant's",         "expected": "Immanuel Kant",                   "verdict": "ok" },
   { "bookId": 8387, "phrase": "Renan",           "expected": "Ernest Renan",                    "verdict": "ok" },
   { "bookId": 8387, "phrase": "St Olav's",       "expected": "St. Olav's shrine",               "verdict": "ok", "_reason": "The shrine in Nidaros Cathedral — pipeline correctly returns this" },
-  { "bookId": 8387, "phrase": "Ylajali",         "expected": "Hunger (Hamsun novel)",           "verdict": "ok" },
+  { "bookId": 8387, "phrase": "Ylajali",         "expected": null,                              "verdict": "suppress", "_reason": "Invented nonsense word the protagonist shouts — not a real reference" },
   { "bookId": 8387, "phrase": "Morgenbladet",    "expected": "Morgenbladet",                    "verdict": "ok" },
   { "bookId": 8387, "phrase": "South America",   "expected": "South America",                   "verdict": "ok" },
   { "bookId": 8387, "phrase": "Christiania",     "expected": "Oslo",                            "verdict": "ok" },

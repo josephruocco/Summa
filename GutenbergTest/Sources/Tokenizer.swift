@@ -195,13 +195,17 @@ enum Tokenizer {
                     } else {
                         basePhraseLower = phraseLower
                     }
-                    if (commonWords.contains(phraseLower) || commonWords.contains(basePhraseLower))
+                    // Also check with hyphens stripped so "Good-bye" is caught by "goodbye".
+                    let dehyphenated = basePhraseLower.replacingOccurrences(of: "-", with: "")
+                    if (commonWords.contains(phraseLower) || commonWords.contains(basePhraseLower)
+                            || commonWords.contains(dehyphenated))
                         && !refCommonAllow.contains(basePhraseLower) {
                         i = j; continue
                     }
-                    // Skip vocab-suffix words
-                    let suffixes = ["able","ible","ing","tion","ness","ment","ous"]
-                    if suffixes.contains(where: { phraseLower.hasSuffix($0) }) && phrase.count <= 10 {
+                    // Skip vocab-suffix words and adverbial forms (capitalized at sentence start, not proper nouns)
+                    let suffixes = ["able","ible","ing","tion","ness","ment","ous",
+                                    "ously","ally","ingly","ently","antly","ibly","ably","ily","ely"]
+                    if suffixes.contains(where: { phraseLower.hasSuffix($0) }) && phrase.count <= 14 {
                         i = j; continue
                     }
                 }

@@ -479,7 +479,8 @@ for book in bookList {
         let result = await Wikipedia.lookup(
             candidate.phrase,
             contextBefore: enrichedBefore.isEmpty ? nil : enrichedBefore,
-            contextAfter:  candidate.contextAfter.isEmpty  ? nil : candidate.contextAfter
+            contextAfter:  candidate.contextAfter.isEmpty  ? nil : candidate.contextAfter,
+            bookContext: book.chapterTitle
         )
 
         let icon = result.status == .ok ? "✓" : (result.status == .suppressed ? "~" : "✗")

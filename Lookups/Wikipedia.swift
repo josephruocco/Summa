@@ -38,7 +38,8 @@ enum Wikipedia {
     static func lookup(
         _ term: String,
         contextBefore: String? = nil,
-        contextAfter: String? = nil
+        contextAfter: String? = nil,
+        bookContext: String? = nil
     ) async -> WikiResult {
         let requested = term.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !requested.isEmpty else {
@@ -101,13 +102,28 @@ enum Wikipedia {
                        let resolvedScore = resolved.score,
                        resolved.status == .ok,
                        resolvedScore >= max(0.62, directScore + 0.05) {
-                        return resolved
+                        // Return immediately only for high-confidence results.
+                        // Uncertain results fall through to the AI cross-check.
+                        if resolvedScore >= 0.90 {
+                            return resolved
+                        }
+                        if resolvedScore > (bestSuppressedResult?.score ?? 0) {
+                            bestDirectScore = max(bestDirectScore, resolvedScore)
+                            bestSuppressedResult = resolved
+                        }
                     }
                 }
 
                 if !suspiciousDirect,
                    let accepted = verify(result: direct, requested: requested, contextBefore: contextBefore, contextAfter: contextAfter) {
-                    return accepted
+                    // Very high confidence → return immediately; uncertain → fall through to AI
+                    if let s = accepted.score, s >= 0.90 {
+                        return accepted
+                    }
+                    if (accepted.score ?? 0) > (bestSuppressedResult?.score ?? 0) {
+                        bestDirectScore = max(bestDirectScore, accepted.score ?? 0)
+                        bestSuppressedResult = accepted
+                    }
                 }
 
                 if direct.status == .disambiguation {
@@ -115,7 +131,13 @@ enum Wikipedia {
                     let searchTerm = contextAugmentedQuery(query, contextBefore: contextBefore, contextAfter: contextAfter) ?? query
                     let resolved = await resolveViaSearch(searchTerm, requested: requested, contextBefore: contextBefore, contextAfter: contextAfter)
                     if let resolved, let accepted = verify(result: resolved, requested: requested, contextBefore: contextBefore, contextAfter: contextAfter) {
-                        return accepted
+                        // High-confidence disambiguation result: return immediately.
+                        // Uncertain result: store as candidate and fall through to AI.
+                        if let s = accepted.score, s >= 0.90 {
+                            return accepted
+                        }
+                        bestDirectScore = max(bestDirectScore, accepted.score ?? 0)
+                        bestSuppressedResult = accepted
                     }
                     // Don't suppress here — fall through so the outer handler can retry
                     // with a plain search, which is more reliable for single proper nouns
@@ -164,18 +186,37 @@ enum Wikipedia {
         // (e.g. "St Olav's" → Wikipedia returns "Olaf II of Norway" with no word overlap →
         // clamped score 0.0, never flagged as suspicious since containsRequest fails).
         let effectivelyNotFound = allBaseNotFound || bestDirectScore < 0.10
+        var bestPhraseScore: Double = 0.0
         if effectivelyNotFound && looksLikeMeaningfulPhrase {
             for query in phraseSearchQueries(for: requested) {
                 if let resolved = await resolveViaSearch(query, requested: query, contextBefore: contextBefore, contextAfter: contextAfter) {
-                    if resolved.status == .ok, let s = resolved.score, s >= 0.55 {
-                        var accepted = resolved
-                        accepted.requested = requested
-                        return accepted
+                    if resolved.status == .ok, let s = resolved.score {
+                        bestPhraseScore = max(bestPhraseScore, s)
+                        // High-confidence results return immediately; uncertain ones fall through to AI
+                        if s >= 0.90 {
+                            var accepted = resolved
+                            accepted.requested = requested
+                            return accepted
+                        }
+                        // Store as candidate for AI comparison
+                        if bestSuppressedResult == nil || s > (bestSuppressedResult?.score ?? 0) {
+                            var candidate = resolved
+                            candidate.requested = requested
+                            bestSuppressedResult = candidate
+                        }
+                        continue
                     }
                     if let accepted = verify(result: resolved, requested: query, contextBefore: contextBefore, contextAfter: contextAfter) {
                         var rebound = accepted
                         rebound.requested = requested
-                        return rebound
+                        if let s = rebound.score, s >= 0.90 {
+                            return rebound
+                        }
+                        if (rebound.score ?? 0) > (bestSuppressedResult?.score ?? 0) {
+                            bestDirectScore = max(bestDirectScore, rebound.score ?? 0)
+                            bestSuppressedResult = rebound
+                        }
+                        continue
                     }
                     if resolved.status == .ok {
                         var suppressed = suppress(result: resolved, reason: "phrase search result scored too low")
@@ -214,23 +255,86 @@ enum Wikipedia {
                 // resolveViaSearch scores candidates using the search result title (e.g. "Christiania"),
                 // but stores the fetched summary result whose title may be the redirect target (e.g. "Oslo").
                 // Re-running verify() here would re-score against the redirect title and fail. Trust the
-                // score resolveViaSearch already set if it meets the acceptance threshold.
-                if resolved.status == .ok, let s = resolved.score, s >= 0.55 {
-                    return resolved
+                // score resolveViaSearch already set.
+                // High-confidence → return immediately. Uncertain → store and let AI cross-check.
+                if resolved.status == .ok, let s = resolved.score {
+                    if s >= 0.90 {
+                        return resolved
+                    }
+                    if s > (bestSuppressedResult?.score ?? 0) {
+                        bestDirectScore = max(bestDirectScore, s)
+                        bestSuppressedResult = resolved
+                    }
+                } else if let accepted = verify(result: resolved, requested: requested, contextBefore: contextBefore, contextAfter: contextAfter) {
+                    if let s = accepted.score, s >= 0.90 {
+                        return accepted
+                    }
+                    if (accepted.score ?? 0) > (bestSuppressedResult?.score ?? 0) {
+                        bestDirectScore = max(bestDirectScore, accepted.score ?? 0)
+                        bestSuppressedResult = accepted
+                    }
+                } else if resolved.status == .ok {
+                    if resolved.score ?? 0 > (bestSuppressedResult?.score ?? 0) {
+                        bestSuppressedResult = suppress(result: resolved, reason: "fallback search result scored too low")
+                    }
                 }
-                if let accepted = verify(result: resolved, requested: requested, contextBefore: contextBefore, contextAfter: contextAfter) {
-                    return accepted
-                }
-                if resolved.status == .ok {
-                    return suppress(result: resolved, reason: "fallback search result scored too low")
-                }
-                // Don't propagate error results — fall through to bestSuppressedResult / notFound
+                // Don't propagate error results — fall through to AI / bestSuppressedResult
             }
         }
 
         // Cache terms that had no Wikipedia article at any variant so we don't re-query them
         if allBaseNotFound {
             notFoundCache.insert(cacheKey)
+        }
+
+        // AI fallback: when pipeline is uncertain or notFound, ask Claude what this refers to.
+        // Threshold matches the direct-lookup early-return (0.90): anything below that is uncertain
+        // enough to warrant a cross-check against the book's context.
+        let shouldTryAI = allBaseNotFound || bestDirectScore < 0.90 || (bestPhraseScore > 0 && bestPhraseScore < 0.80)
+        if shouldTryAI, let bookCtx = bookContext {
+            let aiSuggested = await claudeSuggestTitle(
+                phrase: requested,
+                contextBefore: contextBefore,
+                contextAfter: contextAfter,
+                bookContext: bookCtx
+            )
+            if let suggestedTitle = aiSuggested {
+                // Try direct fetch first, then fall back to search if the exact title doesn't exist
+                let aiResult: WikiResult?
+                if let direct = await fetchSummary(title: suggestedTitle), direct.status == .ok {
+                    aiResult = direct
+                } else {
+                    // AI's title may be slightly off ("Haymarket, Saint Petersburg" → search → "Sennaya Square")
+                    log("  🤖 AI fetch failed for \"\(requested)\" → \"\(suggestedTitle)\", trying search")
+                    if let searched = await resolveViaSearch(suggestedTitle, requested: requested,
+                                                             contextBefore: contextBefore,
+                                                             contextAfter: contextAfter),
+                       searched.status == .ok {
+                        aiResult = searched
+                    } else {
+                        aiResult = nil
+                    }
+                }
+                if let aiResult {
+                    return WikiResult(
+                        status: .ok,
+                        requested: requested,
+                        title: aiResult.title,
+                        extract: aiResult.extract,
+                        pageURL: aiResult.pageURL,
+                        thumbnailURL: aiResult.thumbnailURL,
+                        debug: "ai-suggested: \(suggestedTitle)",
+                        score: 0.75
+                    )
+                }
+            } else if bestDirectScore < 0.90 {
+                // AI said "none" and the pipeline result was already uncertain.
+                // Suppress rather than surface a likely-wrong annotation.
+                log("  🤖 AI said none for \"\(requested)\" (score \(String(format: "%.2f", bestDirectScore))) — suppressing")
+                if let bs = bestSuppressedResult {
+                    return suppress(result: bs, reason: "AI determined: not a reference in this context")
+                }
+            }
         }
 
         return bestSuppressedResult ?? WikiResult(
@@ -243,6 +347,84 @@ enum Wikipedia {
             debug: "all queries failed",
             score: nil
         )
+    }
+
+    private static func claudeSuggestTitle(
+        phrase: String,
+        contextBefore: String?,
+        contextAfter: String?,
+        bookContext: String
+    ) async -> String? {
+        guard let apiKey = envValue("ANTHROPIC_API_KEY"),
+              !apiKey.isEmpty else { return nil }
+
+        let contextSnippet = [contextBefore, contextAfter]
+            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .joined(separator: " … ")
+        let truncatedContext = contextSnippet.count > 400
+            ? String(contextSnippet.prefix(400)) + "…"
+            : contextSnippet
+
+        let prompt = """
+        You are annotating a literary text with Wikipedia references.
+
+        Book: \(bookContext)
+        Phrase: "\(phrase)"
+        Context: "…\(truncatedContext)…"
+
+        What Wikipedia article title does this phrase most likely refer to?
+        Reply with ONLY the exact Wikipedia article title (e.g. "Crates of Thebes", "Karl Johans gate", "Catholic Church").
+        Reply "none" if:
+        - It is a common word or expression (e.g. goodbye, unconsciously, well)
+        - It is a minor fictional character with no dedicated Wikipedia article (e.g. Lady Lucas, Mr Morris, Lizzy Bennet)
+        - It is a pronoun, adverb, or generic descriptor
+        - You are not confident there is a specific Wikipedia article for it
+        NOTE: Major fictional characters DO have Wikipedia articles and should be annotated (e.g. "Mr Heathcliff" → "Heathcliff (Wuthering Heights)", "Ahab" → "Ahab", "Dorian Gray" → "The Picture of Dorian Gray").
+        For religious titles like "Holy One", "Heavenly Father", reply with the primary Wikipedia article (e.g. "God in Christianity").
+        Do NOT reply with an explanation or sentence — only the article title or "none".
+        """
+
+        let body: [String: Any] = [
+            "model": "claude-haiku-4-5",
+            "max_tokens": 60,
+            "temperature": 0,
+            "messages": [["role": "user", "content": prompt]]
+        ]
+
+        guard let bodyData = try? JSONSerialization.data(withJSONObject: body),
+              let url = URL(string: "https://api.anthropic.com/v1/messages") else { return nil }
+
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.timeoutInterval = 10
+        req.setValue(apiKey, forHTTPHeaderField: "x-api-key")
+        req.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = bodyData
+
+        guard let (data, resp) = try? await URLSession.shared.data(for: req),
+              (resp as? HTTPURLResponse)?.statusCode == 200,
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let content = (json["content"] as? [[String: Any]])?.first,
+              let text = content["text"] as? String else { return nil }
+
+        let suggestion = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
+        guard !suggestion.isEmpty,
+              suggestion.lowercased() != "none",
+              suggestion.lowercased() != "\"none\"" else { return nil }
+        // Reject sentence-style responses (model explaining instead of answering)
+        let wordCount = suggestion.split(separator: " ").count
+        let looksLikeSentence = wordCount > 10
+            || suggestion.hasPrefix("I ")
+            || suggestion.contains(". ")
+            || suggestion.contains("refers to")
+            || suggestion.contains("I need")
+        guard !looksLikeSentence else { return nil }
+
+        log("  🤖 AI suggested: \"\(phrase)\" → \(suggestion)")
+        return suggestion
     }
 
     private static func fetchSummary(title: String) async -> WikiResult? {
@@ -419,7 +601,13 @@ enum Wikipedia {
                 return suppress(result: best, reason: "top candidate remained disambiguation")
             }
 
-            guard (best.score ?? 0) >= 0.58 else {
+            let bestReqWords = requested.lowercased()
+                .components(separatedBy: CharacterSet.alphanumerics.inverted)
+                .filter { !$0.isEmpty }
+            let bestAllCommon = bestReqWords.count >= 2
+                && bestReqWords.allSatisfy { CommonWordsLoader.set.contains($0) }
+            let searchThreshold: Double = bestAllCommon ? 0.80 : 0.58
+            guard (best.score ?? 0) >= searchThreshold else {
                 return suppress(result: best, reason: "best search candidate below threshold")
             }
 
@@ -610,8 +798,16 @@ enum Wikipedia {
         let reqExpContentWords = Set(reqExp.split(separator: " ").map { singularize(String($0)) })
             .subtracting(honorificPrefixes)
         let snippetWords = Set(normSnippet.split(separator: " ").map { singularize(String($0)) })
-        let hasSnippetEvidence = !reqContentWords.intersection(snippetWords).isEmpty
-            || !reqExpContentWords.intersection(snippetWords).isEmpty
+        // For multi-word requests (≥2 content words) require at least 2 snippet words to match,
+        // so a single shared word like "jove" in "Xenodon pulcher" or "pulcher" in a species
+        // article doesn't floor an otherwise low-scoring result to 0.60.
+        // Single-word requests only need 1 match (the word itself) — already handled by alias scoring.
+        let snippetMatchCount = reqContentWords.intersection(snippetWords).count
+            + reqExpContentWords.subtracting(reqContentWords).intersection(snippetWords).count
+        let reqContentWordCount = max(reqContentWords.count, reqExpContentWords.count)
+        let hasSnippetEvidence = reqContentWordCount <= 1
+            ? snippetMatchCount >= 1
+            : snippetMatchCount >= 2
         if hasSnippetEvidence, bestScore < 0.60, best.status == .ok {
             bestScore = 0.60
             best.score = bestScore
@@ -686,7 +882,15 @@ enum Wikipedia {
             status: result.status
         )
 
-        guard score >= 0.62 else { return nil }
+        // Phrases made entirely of common English words (e.g. "Castle Hill", "Southern Seas")
+        // need a much higher confidence bar — a Wikipedia hit is likely coincidental.
+        let reqPhraseWords = requested.lowercased()
+            .components(separatedBy: CharacterSet.alphanumerics.inverted)
+            .filter { !$0.isEmpty }
+        let allWordsCommon = reqPhraseWords.count >= 2
+            && reqPhraseWords.allSatisfy { CommonWordsLoader.set.contains($0) }
+        let directThreshold: Double = allWordsCommon ? 0.80 : 0.62
+        guard score >= directThreshold else { return nil }
 
         var accepted = result
         accepted.score = score
@@ -708,8 +912,20 @@ enum Wikipedia {
         let strippedPossessive = stripPossessive(repaired)
         let singular = singularize(strippedPossessive)
 
+        // Strip trailing generic street-type suffixes so that e.g. "Carl Johann Street"
+        // also queries "Carl Johann", which can then match "Karl Johans gate" via search.
+        let streetSuffixes: Set<String> = ["street", "road", "avenue", "lane", "boulevard", "drive"]
+        let streetStripped: String? = {
+            let words = repaired.split(separator: " ").map(String.init)
+            guard words.count >= 2,
+                  let last = words.last,
+                  streetSuffixes.contains(last.lowercased()) else { return nil }
+            return words.dropLast().joined(separator: " ")
+        }()
+
         var seen = Set<String>()
-        return [requested, normalized, repaired, strippedPossessive, singular]
+        return ([requested, normalized, repaired, strippedPossessive, singular]
+            + [streetStripped].compactMap { $0 })
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
             .filter { seen.insert(normalize($0)).inserted }
@@ -876,11 +1092,31 @@ enum Wikipedia {
         // boundaries, so "Christiania," or "Christiania." are still matched.
         let rawBody = [(snippet ?? ""), (extract ?? "")].joined(separator: " ").lowercased()
         let rawBodyWords = Set(rawBody.components(separatedBy: CharacterSet.alphanumerics.inverted).filter { !$0.isEmpty })
+        // Alias/redirect: use the Wikipedia EXTRACT ONLY (not the Brave snippet) to avoid
+        // circular confirmation — Brave snippets always contain the search term by definition.
+        // Require the term to appear early (first 300 chars) OR at least twice in the extract.
+        // Keeps "Christiania" → Oslo (first sentence mentions Christiania) and "Siam" → Thailand,
+        // but suppresses "Romish" → "Ex officio oath" (incidental mention) and fictional names
+        // like "Ylajali" → "Hunger (Hamsun novel)" (not mentioned in article intro at all).
+        let extractBody = (extract ?? "").lowercased()
+        let extractBodyWords = Set(extractBody.components(separatedBy: CharacterSet.alphanumerics.inverted).filter { !$0.isEmpty })
+        // Alias/redirect detection — use only the Wikipedia EXTRACT (not Brave snippet) to
+        // avoid circular confirmation. Two ways to qualify:
+        // 1. The term appears verbatim in the extract (e.g. "Christiania" in Oslo's article).
+        // 2. The term is a spelling variant of a title word — ≥5-char common prefix covering
+        //    ≥60% of the shorter word (e.g. "Alleghanies" ↔ "allegheny" share "allegh").
+        //    This handles archaic/variant spellings where the extract uses the modern form.
+        let isSpellingVariant = titleWordList.contains { titleWord in
+            guard titleWord.count >= 4 else { return false }
+            let prefLen = commonPrefixLen(req, titleWord)
+            return prefLen >= 5
+                && Double(prefLen) / Double(min(req.count, titleWord.count)) >= 0.60
+        }
         let isAliasMatch = requestedHasUppercase
             && !req.contains(" ")
             && !req.isEmpty
             && titleOverlap == 0
-            && (summaryWords.contains(req) || rawBodyWords.contains(req))
+            && (extractBodyWords.contains(req) || isSpellingVariant)
 
         // Length mismatch penalty — skipped for alias matches since title divergence is expected
         if !isAliasMatch {
@@ -971,9 +1207,27 @@ enum Wikipedia {
                     // appear in the literary context — almost certainly a false positive.
                     score -= 0.45
                 } else {
-                    score -= 0.12
+                    // Non-entertainment parenthetical (e.g. "Haymarket (Boston)") that doesn't
+                    // match context is still strong evidence of the wrong sense — raise penalty.
+                    score -= 0.25
                 }
             }
+        }
+
+        // Visual-art attribution penalty: article is about a specific painting/artwork
+        // (e.g. "Pallas Athena (Rembrandt)") but context shows no art discussion.
+        let visualArtWords: Set<String> = ["painting", "canvas", "portrait", "artwork", "fresco", "mural"]
+        if !visualArtWords.isDisjoint(with: summaryWords), contextSummaryOverlap.isEmpty {
+            score -= 0.30
+        }
+
+        // Entertainment-title penalty: when the Wikipedia article title itself contains
+        // entertainment words (e.g. "Songs from the Southern Seas") and context shows
+        // no overlap with the article summary, it's almost certainly the wrong sense.
+        let entertainmentTitleWords: Set<String> = ["song", "songs", "album", "film", "films",
+                                                     "movie", "movies", "soundtrack", "discography"]
+        if !entertainmentTitleWords.isDisjoint(with: titleWords), contextSummaryOverlap.isEmpty {
+            score -= 0.35
         }
 
         // Meta/index pages are almost never the right destination for contextual lookups.
@@ -1001,6 +1255,21 @@ enum Wikipedia {
            normalizedTitle.hasPrefix(req + " "),
            titleWords.count >= 2 {
             score -= 0.18
+        }
+
+        // Comma-geographic disambiguation penalty: Wikipedia titles like "Castle Hill, Huddersfield"
+        // use "Term, Location" to disambiguate generic place names. When the requested term has no
+        // comma but the article title does, the term alone is too generic — penalise unless the
+        // location qualifier actually appears in the surrounding context.
+        if !req.contains(","),
+           let rawTitle = title,
+           let commaIdx = rawTitle.firstIndex(of: ",") {
+            let qualifier = String(rawTitle[rawTitle.index(after: commaIdx)...]).trimmingCharacters(in: .whitespaces)
+            let qualifierWords = Set(normalize(qualifier).split(separator: " ").map(String.init)).subtracting(stopWords)
+            let contextAllWords = Set(context.split(separator: " ").map(String.init))
+            if !qualifierWords.isEmpty && qualifierWords.isDisjoint(with: contextAllWords) {
+                score -= 0.35
+            }
         }
 
         if loweredSummary.contains("may refer to") || loweredSummary.contains("can refer to") {
@@ -1043,6 +1312,62 @@ enum Wikipedia {
 
         if req.count <= 3 {
             score -= 0.20
+        }
+
+        // ── Entity-type mismatch penalty ──────────────────────────────────────────
+        // Parse the Wikipedia extract's opening sentence to classify the article type,
+        // then check if that type conflicts with what the phrase itself implies.
+        // E.g. "Carl Johann Street" implies a place → penalise a person article.
+        //      "Southern Seas" ends with a geographic word → penalise an entertainment article.
+        let extractFirstSentence: String = {
+            let raw = (extract ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            return raw.components(separatedBy: ".").first.map { $0.lowercased() } ?? ""
+        }()
+
+        enum ArticleEntityType { case place, person, entertainment, biology, unknown }
+
+        let articleType: ArticleEntityType = {
+            let s = extractFirstSentence
+            let placeMarkers = ["is a street", "is the main street", "is a road", "is a boulevard",
+                                "is a city", "is a town", "is a village", "is a municipality",
+                                "is a country", "is a region", "is a mountain", "is a range",
+                                "is a river", "is a lake", "is a bay", "is an island",
+                                "is a park", "is a building", "is a church", "is a castle",
+                                "is a shrine", "is a palace", "is located in", "is situated in",
+                                "is a district", "is a neighbourhood", "is a neighborhood",
+                                "is a peninsula", "is a port", "is a harbour", "is a harbor",
+                                "is a plantation", "is an estate", "is a gate", "is a square"]
+            let entertainmentMarkers = ["is a song", "is an album", "is a film", "is a movie",
+                                        "is a television", "is a video game", "is a 20",
+                                        "is a 19", "is a kazakh", "is a german", "directed by"]
+            let biologyMarkers = ["is a species", "is a genus", "is a family of",
+                                  "is a snake", "is a bird", "is a fish", "is a plant",
+                                  "is an insect", "is a mammal", "is a reptile"]
+            if placeMarkers.contains(where: { s.contains($0) }) { return .place }
+            if entertainmentMarkers.contains(where: { s.contains($0) }) { return .entertainment }
+            if biologyMarkers.contains(where: { s.contains($0) }) { return .biology }
+            // Person: "was a/an [role]" is the canonical Wikipedia biography opening
+            if s.contains(" was a ") || s.contains(" was an ") { return .person }
+            return .unknown
+        }()
+
+        // Infer the expected entity type from the phrase itself
+        let phraseWords = req.split(separator: " ").map(String.init)
+        let placePhraseSuffixes: Set<String> = [
+            "street", "road", "avenue", "lane", "boulevard", "gate", "way", "drive", "path",
+            "hill", "mountain", "mountains", "range", "river", "lake", "bay", "island",
+            "valley", "park", "square", "bridge", "tower", "castle", "church", "palace",
+            "sea", "seas", "ocean", "coast", "cape", "point", "port", "harbour", "harbor"
+        ]
+        let phraseImpliesPlace = phraseWords.last.map { placePhraseSuffixes.contains($0) } ?? false
+
+        if phraseImpliesPlace {
+            switch articleType {
+            case .person:        score -= 0.45   // "Carl Johann Street" → Karl Kautsky (person)
+            case .entertainment: score -= 0.40   // "Southern Seas" → Songs from the Southern Seas (film)
+            case .biology:       score -= 0.35
+            case .place, .unknown: break
+            }
         }
 
         return max(0, min(1, score))

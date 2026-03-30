@@ -381,6 +381,8 @@ enum Wikipedia {
           "Great Jove" → "Jupiter (god)"
           "Carl Johann Street" → "Karl Johans gate"
           "Crates" in a philosophy context → "Crates of Thebes"
+          "Kingstown" in an Irish/Dublin context → "Dún Laoghaire"
+          "Thalatta" in a literary/classical context → "Anabasis (Xenophon)"
         Reply with ONLY the exact Wikipedia article title.
         Reply "none" if:
         - It is a common word or expression (e.g. goodbye, unconsciously, well)
@@ -1235,6 +1237,25 @@ enum Wikipedia {
                                                      "movie", "movies", "soundtrack", "discography"]
         if !entertainmentTitleWords.isDisjoint(with: titleWords), contextSummaryOverlap.isEmpty {
             score -= 0.35
+        }
+
+        // TV/media extract penalty: article extract describes a television programme, game show,
+        // reality series etc. — almost never the right match for a literary reference.
+        // "Thank God You're Here" (game show), "The Bachelor" etc. score falsely high on
+        // title-word overlap with common English phrases.
+        let tvMarkers = ["television series", "television show", "game show", "reality show",
+                         "sitcom", "television programme", "television program", "tv series"]
+        if tvMarkers.contains(where: { loweredSummary.contains($0) }), contextSummaryOverlap.isEmpty {
+            score -= 0.55
+        }
+
+        // Biological-taxon penalty: article describes a genus/species (e.g. "Thalatta is a
+        // genus of moths"). Literary references almost never point to taxonomic articles.
+        // Applied unconditionally — even if a few context words overlap, a taxonomy article
+        // is almost never the right match for a literary phrase.
+        if loweredSummary.contains(" genus of ") || loweredSummary.contains(" species of ")
+            || loweredSummary.hasPrefix("genus ") || loweredSummary.hasPrefix("species ") {
+            score -= 0.55
         }
 
         // Meta/index pages are almost never the right destination for contextual lookups.

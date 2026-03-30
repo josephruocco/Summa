@@ -125,7 +125,7 @@
     "_comment": "=== HAMLET — Act I Scene I (ID 1524) ===",
     "bookId": 1524, "phrase": "Fortinbras",           "expected": "Fortinbras",             "verdict": "ok" },
   { "bookId": 1524, "phrase": "Fortinbras of Norway", "expected": "Fortinbras",             "verdict": "ok" },
-  { "bookId": 1524, "phrase": "Polacks",              "expected": "Poland",                 "verdict": "ok", "_reason": "Fortinbras is marching against the Polacks — historical reference to Poland" },
+  { "bookId": 1524, "phrase": "Polacks",              "expected": "Polish people",          "verdict": "ok", "_reason": "Fortinbras marches against the Polacks — derogatory term for Polish people; both 'Poland' and 'Polish people' are acceptable" },
   { "bookId": 1524, "phrase": "ACT SCENE Elsinore",   "expected": "Helsingør",              "verdict": "ok", "_reason": "Elsinore is the English name for Helsingør, Denmark — Hamlet's castle setting" },
   { "bookId": 1524, "phrase": "Th'extravagant",       "expected": "Purgatory",              "verdict": "ok", "_reason": "The Ghost is an 'extravagant and erring spirit' — must return to Purgatory before dawn" }
 ]

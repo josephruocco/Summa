@@ -128,6 +128,7 @@ enum Wikipedia {
         - Prefer suppress over weak or collision-prone wikipedia matches.
         - Single adjectival forms often belong in gloss or suppress, not wikipedia.
         - Ritual, culture-bound, and period labels often belong in gloss if the modern article match is brittle.
+        - Royal epithets and archaic multi-word ethnonym labels usually belong in gloss unless the phrase itself is already a stable canonical article title.
         - Chapter headings and thematic labels should be suppress.
 
         Examples:
@@ -143,10 +144,13 @@ enum Wikipedia {
         - Return only the JSON object.
         """
 
-        if let plan = await openAIAnnotationPlan(prompt: prompt) {
-            return plan
+        if let plan = await openAIAnnotationPlan(prompt: prompt, requested: requested) {
+            return normalizeAnnotationPlan(plan, requested: requested)
         }
-        return await claudeAnnotationPlan(prompt: prompt)
+        if let plan = await claudeAnnotationPlan(prompt: prompt, requested: requested) {
+            return normalizeAnnotationPlan(plan, requested: requested)
+        }
+        return nil
     }
 
     static func lookup(
@@ -643,7 +647,7 @@ enum Wikipedia {
         return parsedAIDecision(text)
     }
 
-    private static func openAIAnnotationPlan(prompt: String) async -> AnnotationPlan? {
+    private static func openAIAnnotationPlan(prompt: String, requested: String) async -> AnnotationPlan? {
         guard let apiKey = envValue("OPENAI_API_KEY"),
               !apiKey.isEmpty else { return nil }
 
@@ -677,10 +681,10 @@ enum Wikipedia {
             return nil
         }
 
-        return parsedAnnotationPlan(responseText(from: json))
+        return parsedAnnotationPlan(responseText(from: json), requested: requested)
     }
 
-    private static func claudeAnnotationPlan(prompt: String) async -> AnnotationPlan? {
+    private static func claudeAnnotationPlan(prompt: String, requested: String) async -> AnnotationPlan? {
         guard let apiKey = envValue("ANTHROPIC_API_KEY"),
               !apiKey.isEmpty else { return nil }
 
@@ -708,7 +712,7 @@ enum Wikipedia {
               let content = (json["content"] as? [[String: Any]])?.first,
               let text = content["text"] as? String else { return nil }
 
-        return parsedAnnotationPlan(text)
+        return parsedAnnotationPlan(text, requested: requested)
     }
 
     private static func claudeSuggestTitle(prompt: String) async -> AIDisambiguationDecision? {
@@ -792,7 +796,7 @@ enum Wikipedia {
         return cleanedDecision
     }
 
-    private static func parsedAnnotationPlan(_ text: String?) -> AnnotationPlan? {
+    private static func parsedAnnotationPlan(_ text: String?, requested: String) -> AnnotationPlan? {
         guard let text,
               let jsonData = extractJSONObject(from: text)?.data(using: .utf8) else { return nil }
         let decoder = JSONDecoder()
@@ -812,14 +816,66 @@ enum Wikipedia {
                   !gloss.isEmpty else { return nil }
         }
 
-        return AnnotationPlan(
+        let adjustedType = adjustedAnnotationType(
+            requested: requested,
             annotationType: annotationType,
+            wikipediaTitle: plan.wikipediaTitle
+        )
+
+        let glossText = plan.gloss?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let fallbackGloss = glossText ?? plan.reason.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        return AnnotationPlan(
+            annotationType: adjustedType,
             confidence: plan.confidence,
-            wikipediaTitle: plan.wikipediaTitle?.trimmingCharacters(in: .whitespacesAndNewlines),
+            wikipediaTitle: adjustedType == "wikipedia" ? plan.wikipediaTitle?.trimmingCharacters(in: .whitespacesAndNewlines) : nil,
             glossTitle: plan.glossTitle?.trimmingCharacters(in: .whitespacesAndNewlines),
-            gloss: plan.gloss?.trimmingCharacters(in: .whitespacesAndNewlines),
+            gloss: adjustedType == "gloss" ? fallbackGloss : glossText,
             reason: plan.reason.trimmingCharacters(in: .whitespacesAndNewlines)
         )
+    }
+
+    private static func normalizeAnnotationPlan(_ plan: AnnotationPlan, requested: String) -> AnnotationPlan {
+        let adjustedType = adjustedAnnotationType(
+            requested: requested,
+            annotationType: plan.annotationType,
+            wikipediaTitle: plan.wikipediaTitle
+        )
+
+        let glossText = plan.gloss?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let fallbackGloss = glossText ?? plan.reason.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        return AnnotationPlan(
+            annotationType: adjustedType,
+            confidence: plan.confidence,
+            wikipediaTitle: adjustedType == "wikipedia" ? plan.wikipediaTitle?.trimmingCharacters(in: .whitespacesAndNewlines) : nil,
+            glossTitle: plan.glossTitle?.trimmingCharacters(in: .whitespacesAndNewlines),
+            gloss: adjustedType == "gloss" ? fallbackGloss : glossText,
+            reason: plan.reason.trimmingCharacters(in: .whitespacesAndNewlines)
+        )
+    }
+
+    private static func adjustedAnnotationType(
+        requested: String,
+        annotationType: String,
+        wikipediaTitle: String?
+    ) -> String {
+        guard annotationType == "wikipedia" else { return annotationType }
+
+        let normalizedRequested = normalize(requested)
+        let normalizedTitle = normalize(wikipediaTitle ?? "")
+        let words = normalizedRequested.split(separator: " ").map(String.init)
+        let exactPhraseMatch = !normalizedRequested.isEmpty && normalizedRequested == normalizedTitle
+
+        if isRoyalEpithetPhrase(words) && !exactPhraseMatch {
+            return "gloss"
+        }
+
+        if isArchaicEthnonymPhrase(words) && !exactPhraseMatch {
+            return "gloss"
+        }
+
+        return annotationType
     }
 
     private static func extractJSONObject(from text: String) -> String? {
@@ -2032,6 +2088,25 @@ enum Wikipedia {
         let symbolicAdjectives: Set<String> = ["white", "black", "red", "blue", "holy", "sacred"]
         let animalWords: Set<String> = ["dog", "horse", "bull", "elephant", "hound", "steed", "whale"]
         return symbolicAdjectives.contains(words[0]) && animalWords.contains(words[1])
+    }
+
+    private static func isRoyalEpithetPhrase(_ words: [String]) -> Bool {
+        guard words.count >= 4,
+              let first = words.first,
+              honorificLeadWords.contains(first),
+              words.contains("of") else { return false }
+        let symbolicWords: Set<String> = ["white", "golden", "sacred", "imperial"]
+        let referentWords: Set<String> = ["elephant", "elephants", "bull", "bulls", "hound", "hounds", "dog", "dogs"]
+        return !symbolicWords.isDisjoint(with: Set(words)) && !referentWords.isDisjoint(with: Set(words))
+    }
+
+    private static func isArchaicEthnonymPhrase(_ words: [String]) -> Bool {
+        guard words.count >= 3 else { return false }
+        let leadWords: Set<String> = ["red", "white", "black", "yellow", "brown"]
+        let peopleWords: Set<String> = ["men", "man", "people", "peoples", "tribes", "race"]
+        return leadWords.contains(words.first ?? "")
+            && !peopleWords.isDisjoint(with: Set(words))
+            && words.contains("of")
     }
 
     private static let honorificLeadWords: Set<String> = [

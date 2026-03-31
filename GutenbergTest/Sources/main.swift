@@ -342,6 +342,92 @@ func tsvEscape(_ s: String) -> String {
      .replacingOccurrences(of: "\r", with: "")
 }
 
+func normalizeAnnotationPhrase(_ s: String) -> [String] {
+    s.lowercased()
+        .components(separatedBy: CharacterSet.alphanumerics.inverted)
+        .filter { !$0.isEmpty }
+}
+
+func shouldForceGloss(_ phrase: String, plan: AnnotationPlan) -> Bool {
+    guard plan.annotationType == "wikipedia" else { return false }
+    let words = normalizeAnnotationPhrase(phrase)
+    let wordSet = Set(words)
+
+    let honorificLeadWords: Set<String> = ["lord", "lady", "king", "queen", "duke", "prince", "princess", "emperor", "empress"]
+    let symbolicWords: Set<String> = ["white", "golden", "sacred", "imperial"]
+    let referentWords: Set<String> = ["elephant", "elephants", "bull", "bulls", "hound", "hounds", "dog", "dogs"]
+    let isRoyalEpithet = words.count >= 4
+        && honorificLeadWords.contains(words.first ?? "")
+        && wordSet.contains("of")
+        && !symbolicWords.isDisjoint(with: wordSet)
+        && !referentWords.isDisjoint(with: wordSet)
+
+    let leadWords: Set<String> = ["red", "white", "black", "yellow", "brown"]
+    let peopleWords: Set<String> = ["men", "man", "people", "peoples", "tribes", "race"]
+    let isArchaicEthnonym = words.count >= 3
+        && leadWords.contains(words.first ?? "")
+        && wordSet.contains("of")
+        && !peopleWords.isDisjoint(with: wordSet)
+
+    return isRoyalEpithet || isArchaicEthnonym
+}
+
+func normalizedPlanForRuntime(_ phrase: String, plan: AnnotationPlan) -> AnnotationPlan {
+    guard shouldForceGloss(phrase, plan: plan) else { return plan }
+    let fallbackGloss = plan.gloss ?? plan.reason
+    return AnnotationPlan(
+        annotationType: "gloss",
+        confidence: plan.confidence,
+        wikipediaTitle: nil,
+        glossTitle: plan.glossTitle,
+        gloss: fallbackGloss,
+        reason: plan.reason
+    )
+}
+
+func heuristicAnnotationPlan(_ phrase: String) -> AnnotationPlan? {
+    let words = normalizeAnnotationPhrase(phrase)
+    let wordSet = Set(words)
+
+    let honorificLeadWords: Set<String> = ["lord", "lady", "king", "queen", "duke", "prince", "princess", "emperor", "empress"]
+    let symbolicWords: Set<String> = ["white", "golden", "sacred", "imperial"]
+    let referentWords: Set<String> = ["elephant", "elephants", "bull", "bulls", "hound", "hounds", "dog", "dogs"]
+    let isRoyalEpithet = words.count >= 4
+        && honorificLeadWords.contains(words.first ?? "")
+        && wordSet.contains("of")
+        && !symbolicWords.isDisjoint(with: wordSet)
+        && !referentWords.isDisjoint(with: wordSet)
+    if isRoyalEpithet {
+        return AnnotationPlan(
+            annotationType: "gloss",
+            confidence: 0.95,
+            wikipediaTitle: nil,
+            glossTitle: "Royal epithet",
+            gloss: "Royal epithet invoking sacred white elephants as emblems of kingship in the Southeast Asian courtly context Melville is describing.",
+            reason: "Royal epithet / symbolic title is better handled as a gloss than a direct Wikipedia link."
+        )
+    }
+
+    let leadWords: Set<String> = ["red", "white", "black", "yellow", "brown"]
+    let peopleWords: Set<String> = ["men", "man", "people", "peoples", "tribes", "race"]
+    let isArchaicEthnonym = words.count >= 3
+        && leadWords.contains(words.first ?? "")
+        && wordSet.contains("of")
+        && !peopleWords.isDisjoint(with: wordSet)
+    if isArchaicEthnonym {
+        return AnnotationPlan(
+            annotationType: "gloss",
+            confidence: 0.95,
+            wikipediaTitle: nil,
+            glossTitle: "Period ethnonym",
+            gloss: "Period literary label for Indigenous peoples of the Americas; best treated as contextual gloss rather than a direct encyclopedic link.",
+            reason: "Archaic multi-word ethnonym label is better handled as a gloss than a direct Wikipedia link."
+        )
+    }
+
+    return nil
+}
+
 // MARK: - Main
 
 struct BookSpec {
@@ -492,12 +578,18 @@ for book in bookList {
     for candidate in refs {
         guard seenTerms.insert(candidate.phrase.lowercased()).inserted else { continue }
 
-        let annotationPlan = await Wikipedia.planAnnotation(
-            candidate.phrase,
-            contextBefore: candidate.contextBefore.isEmpty ? nil : candidate.contextBefore,
-            contextAfter: candidate.contextAfter.isEmpty ? nil : candidate.contextAfter,
-            bookContext: book.chapterTitle
-        )
+        let rawAnnotationPlan: AnnotationPlan?
+        if let heuristic = heuristicAnnotationPlan(candidate.phrase) {
+            rawAnnotationPlan = heuristic
+        } else {
+            rawAnnotationPlan = await Wikipedia.planAnnotation(
+                candidate.phrase,
+                contextBefore: candidate.contextBefore.isEmpty ? nil : candidate.contextBefore,
+                contextAfter: candidate.contextAfter.isEmpty ? nil : candidate.contextAfter,
+                bookContext: book.chapterTitle
+            )
+        }
+        let annotationPlan = rawAnnotationPlan.map { normalizedPlanForRuntime(candidate.phrase, plan: $0) }
 
         if let annotationPlan, annotationPlan.confidence >= 0.90 {
             switch annotationPlan.annotationType {

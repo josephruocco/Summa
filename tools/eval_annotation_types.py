@@ -18,13 +18,15 @@ import sys
 from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).parent
-GOLD_PATH = SCRIPT_DIR / "gold_sets" / "moby_dick_annotation_types.json"
+DEFAULT_GOLD_PATH = SCRIPT_DIR / "gold_sets" / "moby_dick_annotation_types.json"
 
 
-def load_gold():
-    data = json.loads(GOLD_PATH.read_text())
+def load_gold(gold_path: Path, book_id: int | None = None):
+    data = json.loads(gold_path.read_text())
     gold = {}
     for entry in data:
+        if book_id is not None and entry["bookId"] != book_id:
+            continue
         key = (entry["bookId"], entry["phrase"].lower())
         gold[key] = entry
     return gold
@@ -154,9 +156,12 @@ def print_report(exact, wrong_type, wrong_title, missing):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--tsv")
+    parser.add_argument("--gold-set", help="Path to annotation-type gold set JSON")
+    parser.add_argument("--book-id", type=int, help="Restrict eval to a single book ID")
     args = parser.parse_args()
 
-    gold = load_gold()
+    gold_path = Path(args.gold_set) if args.gold_set else DEFAULT_GOLD_PATH
+    gold = load_gold(gold_path, book_id=args.book_id)
     if args.tsv:
         with open(args.tsv) as f:
             rows = parse_tsv(f)
@@ -167,6 +172,9 @@ def main():
             rows = parse_tsv(lines)
         else:
             rows = parse_pipeline_log(lines)
+
+    if args.book_id is not None:
+        rows = [row for row in rows if row["bookId"] == args.book_id]
 
     exact, wrong_type, wrong_title, missing = evaluate(rows, gold)
     print_report(exact, wrong_type, wrong_title, missing)

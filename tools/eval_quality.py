@@ -200,6 +200,7 @@ def print_report(tp, fp, fn, tn, wrong_title):
 def main():
     parser = argparse.ArgumentParser(description="Eval pipeline quality vs ground truth")
     parser.add_argument("--tsv", help="Read from TSV file instead of stdin log")
+    parser.add_argument("--book-id", type=int, help="Restrict eval to a single book ID")
     args = parser.parse_args()
 
     gt, loaded_files = load_ground_truth()
@@ -220,6 +221,10 @@ def main():
         else:
             rows = parse_pipeline_log(lines)
             print(f"Parsed {len(rows)} log rows from stdin")
+
+    if args.book_id is not None:
+        rows = [row for row in rows if row["bookId"] == args.book_id]
+        gt = {k: v for k, v in gt.items() if k[0] == args.book_id}
 
     tp, fp, fn, tn, wrong_title = evaluate(rows, gt)
     print_report(tp, fp, fn, tn, wrong_title)

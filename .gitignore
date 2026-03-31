@@ -32,6 +32,6 @@ playground.xcworkspace
 # Local env / secrets
 .env
 
-# Claude / Codex local internals
+# Claude Code
 .claude/
 CLAUDE.md

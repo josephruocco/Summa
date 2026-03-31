@@ -475,32 +475,15 @@ for book in bookList {
 
     log("  \(refs.count) ref candidates → Wikipedia lookups, \(vocabs.count) vocab → dictionary")
 
-    // Book-level disambiguation context: prepend author name + distinctive title words to
-    // every lookup so character names like "Marlow" (Conrad) or "Raskolnikov" (Dostoevsky)
-    // resolve to the correct article rather than an unrelated person.
-    //
-    // We filter the book title to words ≥7 chars so generic short words like "Hunger",
-    // "Crime", "Heart" don't spill into unrelated articles, while keeping distinctive words
-    // like "Darkness", "Punishment", "Picture" that appear in the canonical article text.
-    let chapterParts = book.chapterTitle.components(separatedBy: " — ")
-    let authorName = chapterParts.count > 1 ? chapterParts.last! : ""
-    let titleDistinctive = book.title
-        .split(separator: " ").map(String.init)
-        .filter { $0.count >= 7 && !["chapter","section","prologue","epilogue"].contains($0.lowercased()) }
-        .joined(separator: " ")
-    let docContext = [titleDistinctive, authorName].filter { !$0.isEmpty }.joined(separator: " ")
-
     var bookStats = BookRunStats(slug: book.slug)
     var annotations: [DemoAnnotation] = []
     var seenTerms = Set<String>()
     for candidate in refs {
         guard seenTerms.insert(candidate.phrase.lowercased()).inserted else { continue }
 
-        let enrichedBefore = [docContext, candidate.contextBefore]
-            .filter { !$0.isEmpty }.joined(separator: " ")
         let result = await Wikipedia.lookup(
             candidate.phrase,
-            contextBefore: enrichedBefore.isEmpty ? nil : enrichedBefore,
+            contextBefore: candidate.contextBefore.isEmpty ? nil : candidate.contextBefore,
             contextAfter:  candidate.contextAfter.isEmpty  ? nil : candidate.contextAfter,
             bookContext: book.chapterTitle
         )

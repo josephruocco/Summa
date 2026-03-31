@@ -385,11 +385,15 @@ enum Wikipedia {
         Nearby context: "…\(truncatedContext)…"
 
         Task: identify the single best Wikipedia article for THIS SPECIFIC PHRASE as used in THIS PASSAGE.
-        IMPORTANT:
-        - Resolve the phrase itself, not the overall theme of the chapter.
-        - Prefer "none" over a loose thematic or metaphorical association.
-        - If the phrase is a heading, epithet, descriptive phrase, adjective, or culture-bound expression without a clear standalone encyclopedia target, reply "none".
+        Rules:
+        - Resolve the phrase itself as used in context.
+        - If the phrase is a descriptive title, epithet, honorific, poetic expression, or culture-bound wording, you should still link it when it clearly points to a specific underlying real-world referent with a stable Wikipedia article.
+        - In such cases, prefer the underlying referent over "none".
+        - Prefer the most specific concrete referent clearly intended by the sentence.
         - Do not jump to a modern film, restaurant, company, song, or product unless the sentence clearly supports that sense.
+        - When multiple plausible referents exist, choose "none" unless one is clearly intended by the sentence.
+        - Prefer historical or literary referents supported by the passage over modern commercial or pop-culture entities.
+        - If the phrase does not clearly point to a specific stable referent, reply "none".
         Examples:
           "Venetians" in an art context → "Venetian painting"
           "Romish" → "Catholic Church"
@@ -398,16 +402,19 @@ enum Wikipedia {
           "Crates" in a philosophy context → "Crates of Thebes"
           "Kingstown" in an Irish/Dublin context → "Dún Laoghaire"
           "Thalatta" in a literary/classical context → "Anabasis (Xenophon)"
+          "Lord of the White Elephants" in a Southeast Asian royal context → "White elephant (animal)"
         Reply with ONLY the exact Wikipedia article title.
         Reply "none" if:
-        - It is a common word or expression (e.g. goodbye, unconsciously, well)
-        - It is a minor fictional character with no dedicated Wikipedia article (e.g. Lady Lucas, Mr Morris, Lizzy Bennet)
+        - It is a common word or expression
         - It is a pronoun, adverb, or generic descriptor
-        - It is a chapter heading or thematic phrase like "Whiteness of the Whale"
-        - The phrase only loosely suggests a concept but does not itself name a stable article
-        - You are not confident there is a specific Wikipedia article for it
-        NOTE: Major fictional characters DO have Wikipedia articles and should be annotated (e.g. "Mr Heathcliff" → "Heathcliff (Wuthering Heights)", "Ahab" → "Ahab", "Dorian Gray" → "The Picture of Dorian Gray").
-        For religious titles like "Holy One", "Heavenly Father", reply with the primary Wikipedia article (e.g. "God in Christianity").
+        - It is a minor fictional character with no dedicated Wikipedia article
+        - It is a chapter heading or thematic phrase
+        - It only loosely suggests a concept and does not clearly identify a specific referent
+        - You are not confident there is a specific Wikipedia article for the referent intended in context
+        NOTE:
+        - Major fictional characters do have Wikipedia articles and should be annotated.
+        - For religious titles like "Holy One" or "Heavenly Father", reply with the primary Wikipedia article for the deity as understood in context.
+        - For descriptive epithets, titles, or figurative labels, return the article for the underlying referent when that referent is plainly identifiable from the passage and is the thing actually being invoked.
         Do NOT reply with an explanation or sentence — only the article title or "none".
         """
 

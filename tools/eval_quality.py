@@ -19,19 +19,32 @@ import argparse
 from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).parent
-GT_PATH    = SCRIPT_DIR / "ground_truth.json"
+GT_DIR     = SCRIPT_DIR / "ground_truth"
+LEGACY_GT_PATH = SCRIPT_DIR / "ground_truth.json"
 
 
 def load_ground_truth():
-    data = json.loads(GT_PATH.read_text())
-    # key: (bookId, phrase_lower) → entry
+    files = []
+    if GT_DIR.is_dir():
+        files = sorted(GT_DIR.glob("*.json"))
+    elif LEGACY_GT_PATH.exists():
+        files = [LEGACY_GT_PATH]
+    else:
+        raise FileNotFoundError(f"No ground truth found in {GT_DIR} or {LEGACY_GT_PATH}")
+
     gt = {}
-    for entry in data:
-        if "_comment" in entry:
-            continue
-        key = (entry["bookId"], entry["phrase"].lower())
-        gt[key] = entry
-    return gt
+    loaded_files = []
+    for path in files:
+        data = json.loads(path.read_text())
+        loaded_files.append(path.name)
+        for entry in data:
+            if "_comment" in entry:
+                continue
+            key = (entry["bookId"], entry["phrase"].lower())
+            if key in gt:
+                raise ValueError(f"Duplicate ground truth entry for {key} in {path}")
+            gt[key] = entry
+    return gt, loaded_files
 
 
 def title_matches(actual: str, expected: str) -> bool:
@@ -189,8 +202,9 @@ def main():
     parser.add_argument("--tsv", help="Read from TSV file instead of stdin log")
     args = parser.parse_args()
 
-    gt = load_ground_truth()
-    print(f"Loaded {len(gt)} ground truth entries from {GT_PATH}")
+    gt, loaded_files = load_ground_truth()
+    source_label = GT_DIR if GT_DIR.is_dir() else LEGACY_GT_PATH
+    print(f"Loaded {len(gt)} ground truth entries from {source_label} ({len(loaded_files)} files)")
 
     if args.tsv:
         with open(args.tsv) as f:

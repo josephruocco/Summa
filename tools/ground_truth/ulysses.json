@@ -1,0 +1,71 @@
+[
+  {
+    "_comment": "Ulysses — Episode 1 (ID 4300)",
+    "bookId": 4300,
+    "phrase": "Buck Mulligan",
+    "expected": "Buck Mulligan",
+    "verdict": "ok"
+  },
+  {
+    "bookId": 4300,
+    "phrase": "Stephen Dedalus",
+    "expected": "Stephen Dedalus",
+    "verdict": "ok"
+  },
+  {
+    "bookId": 4300,
+    "phrase": "Kinch",
+    "expected": "Stephen Dedalus",
+    "verdict": "ok",
+    "_reason": "Kinch is Mulligan's nickname for Stephen Dedalus"
+  },
+  {
+    "bookId": 4300,
+    "phrase": "Chrysostomos",
+    "expected": "John Chrysostom",
+    "verdict": "ok",
+    "_reason": "Mulligan calls Stephen 'Chrysostomos' (golden-mouthed), a reference to the Church Father"
+  },
+  {
+    "bookId": 4300,
+    "phrase": "Introibo",
+    "expected": "Psalm 43",
+    "verdict": "ok",
+    "_reason": "Introibo ad altare Dei — opening of the Latin Mass / Psalm 43"
+  },
+  {
+    "bookId": 4300,
+    "phrase": "Kingstown",
+    "expected": "Dún Laoghaire",
+    "verdict": "ok",
+    "_reason": "Kingstown is the former name of Dún Laoghaire, the Dublin port town"
+  },
+  {
+    "bookId": 4300,
+    "phrase": "Algy",
+    "expected": "Algernon Charles Swinburne",
+    "verdict": "ok",
+    "_reason": "Mulligan quotes Swinburne, calling him 'Algy'"
+  },
+  {
+    "bookId": 4300,
+    "phrase": "Caliban",
+    "expected": "Caliban",
+    "verdict": "ok",
+    "_reason": "Mulligan calls Stephen 'poor dogsbody' and references The Tempest"
+  },
+  {
+    "bookId": 4300,
+    "phrase": "Thalatta",
+    "expected": "Anabasis (Xenophon)",
+    "verdict": "ok",
+    "_reason": "Thalatta! Thalatta! — the famous sea-cry from Xenophon's Anabasis, Book IV"
+  },
+  {
+    "bookId": 4300,
+    "phrase": "Scutter",
+    "expected": null,
+    "verdict": "suppress",
+    "_reason": "Hiberno-English slang, not a reference"
+  }
+]

@@ -1,0 +1,24 @@
+[
+  {
+    "_comment": "Jane Eyre — Chapter I (ID 1260)",
+    "bookId": 1260,
+    "phrase": "Bewick's History of British Birds",
+    "expected": "A History of British Birds",
+    "verdict": "ok",
+    "_reason": "Thomas Bewick's illustrated ornithology book that Jane reads as a child"
+  },
+  {
+    "bookId": 1260,
+    "phrase": "Caligula",
+    "expected": "Caligula",
+    "verdict": "ok",
+    "_reason": "John Reed compared to the Roman emperor by Jane"
+  },
+  {
+    "bookId": 1260,
+    "phrase": "Where the Northern Ocean",
+    "expected": null,
+    "verdict": "suppress",
+    "_reason": "Fragment of a descriptive passage about the arctic, not a proper noun reference"
+  }
+]

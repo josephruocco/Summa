@@ -1,0 +1,30 @@
+[
+  {
+    "_comment": "Pride and Prejudice — Chapter I (ID 1342)",
+    "bookId": 1342,
+    "phrase": "Michaelmas",
+    "expected": "Michaelmas",
+    "verdict": "ok"
+  },
+  {
+    "bookId": 1342,
+    "phrase": "Lady Lucas",
+    "expected": null,
+    "verdict": "suppress",
+    "_reason": "Lisa Lucas — fictional character in P&P, not a real person"
+  },
+  {
+    "bookId": 1342,
+    "phrase": "Mr Morris",
+    "expected": null,
+    "verdict": "suppress",
+    "_reason": "Fantastic Flying Books of Mr Morris Lessmore — wrong"
+  },
+  {
+    "bookId": 1342,
+    "phrase": "Lizzy",
+    "expected": null,
+    "verdict": "suppress",
+    "_reason": "Lizzie (disambiguation) — Lizzy is Elizabeth Bennet, a fictional character"
+  }
+]

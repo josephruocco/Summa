@@ -1,0 +1,24 @@
+[
+  {
+    "_comment": "Anna Karenina — Part I Chapter I (ID 1399)",
+    "bookId": 1399,
+    "phrase": "Anna Arkadyevna",
+    "expected": "Anna Karenina",
+    "verdict": "ok",
+    "_reason": "Anna Arkadyevna Karenina is the novel's protagonist"
+  },
+  {
+    "bookId": 1399,
+    "phrase": "Wiesbaden",
+    "expected": "Wiesbaden",
+    "verdict": "ok",
+    "_reason": "German city where Oblonsky's brother-in-law gambled"
+  },
+  {
+    "bookId": 1399,
+    "phrase": "Thank God",
+    "expected": null,
+    "verdict": "suppress",
+    "_reason": "Common expression, not a Wikipedia reference"
+  }
+]

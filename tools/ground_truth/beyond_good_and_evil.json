@@ -1,0 +1,73 @@
+[
+  {
+    "_comment": "Beyond Good and Evil — Part I (ID 4363)",
+    "bookId": 4363,
+    "phrase": "Kant",
+    "expected": "Immanuel Kant",
+    "verdict": "ok"
+  },
+  {
+    "bookId": 4363,
+    "phrase": "Spinoza",
+    "expected": "Baruch Spinoza",
+    "verdict": "ok"
+  },
+  {
+    "bookId": 4363,
+    "phrase": "Oedipus",
+    "expected": "Oedipus",
+    "verdict": "ok"
+  },
+  {
+    "bookId": 4363,
+    "phrase": "Stoicism",
+    "expected": "Stoicism",
+    "verdict": "ok"
+  },
+  {
+    "bookId": 4363,
+    "phrase": "Nihilism",
+    "expected": "Nihilism",
+    "verdict": "ok"
+  },
+  {
+    "bookId": 4363,
+    "phrase": "Epicurus",
+    "expected": "Epicurus",
+    "verdict": "ok"
+  },
+  {
+    "bookId": 4363,
+    "phrase": "Positivism",
+    "expected": "Positivism",
+    "verdict": "ok"
+  },
+  {
+    "bookId": 4363,
+    "phrase": "WHO HE IS",
+    "expected": null,
+    "verdict": "suppress",
+    "_reason": "Bill Withers — obviously wrong for Nietzsche's Beyond Good and Evil"
+  },
+  {
+    "bookId": 4363,
+    "phrase": "HOW COULD",
+    "expected": null,
+    "verdict": "suppress",
+    "_reason": "How Could It Be (pop song) — mangled phrase from Nietzsche text"
+  },
+  {
+    "bookId": 4363,
+    "phrase": "INSPIRING GENII",
+    "expected": null,
+    "verdict": "suppress",
+    "_reason": "Inspiring Generation (Korean drama) — wrong"
+  },
+  {
+    "bookId": 4363,
+    "phrase": "Pallas Athene",
+    "expected": "Athena",
+    "verdict": "ok",
+    "_reason": "Pallas Athena is the Greek goddess — AI now correctly resolves to Athena not the Rembrandt painting"
+  }
+]

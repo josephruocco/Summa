@@ -1,0 +1,15 @@
+[
+  {
+    "_comment": "Wuthering Heights — Chapter I (ID 768)",
+    "bookId": 768,
+    "phrase": "Wuthering Heights",
+    "expected": "Wuthering Heights",
+    "verdict": "ok"
+  },
+  {
+    "bookId": 768,
+    "phrase": "Mr Heathcliff",
+    "expected": "Heathcliff (Wuthering Heights)",
+    "verdict": "ok"
+  }
+]

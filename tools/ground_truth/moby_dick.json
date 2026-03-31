@@ -1,0 +1,117 @@
+[
+  {
+    "_comment": "Moby-Dick — Chapter 42 (ID 2701)",
+    "bookId": 2701,
+    "phrase": "Moby Dick",
+    "expected": "Moby-Dick",
+    "verdict": "ok"
+  },
+  {
+    "bookId": 2701,
+    "phrase": "Ahab",
+    "expected": "Ahab",
+    "verdict": "ok"
+  },
+  {
+    "bookId": 2701,
+    "phrase": "Rocky Mountains",
+    "expected": "Rocky Mountains",
+    "verdict": "ok"
+  },
+  {
+    "bookId": 2701,
+    "phrase": "Alleghanies",
+    "expected": "Allegheny Mountains",
+    "verdict": "ok"
+  },
+  {
+    "bookId": 2701,
+    "phrase": "Great Spirit",
+    "expected": "Great Spirit",
+    "verdict": "ok"
+  },
+  {
+    "bookId": 2701,
+    "phrase": "White Squall",
+    "expected": "White squall",
+    "verdict": "ok"
+  },
+  {
+    "bookId": 2701,
+    "phrase": "Froissart",
+    "expected": "Jean Froissart",
+    "verdict": "ok"
+  },
+  {
+    "bookId": 2701,
+    "phrase": "White Tower of London",
+    "expected": "White Tower (Tower of London)",
+    "verdict": "ok"
+  },
+  {
+    "bookId": 2701,
+    "phrase": "Siam",
+    "expected": "Thailand",
+    "verdict": "ok"
+  },
+  {
+    "bookId": 2701,
+    "phrase": "Albatross",
+    "expected": "Albatross",
+    "verdict": "ok"
+  },
+  {
+    "bookId": 2701,
+    "phrase": "Coleridge",
+    "expected": "Samuel Taylor Coleridge",
+    "verdict": "ok"
+  },
+  {
+    "bookId": 2701,
+    "phrase": "Iroquois",
+    "expected": "Iroquois",
+    "verdict": "ok"
+  },
+  {
+    "bookId": 2701,
+    "phrase": "Great Jove",
+    "expected": "Jupiter (god)",
+    "verdict": "ok",
+    "_reason": "Jove = Jupiter (Roman chief deity) — AI correctly resolves to Jupiter (god)"
+  },
+  {
+    "bookId": 2701,
+    "phrase": "Romish",
+    "expected": "Catholic Church",
+    "verdict": "ok",
+    "_reason": "Romish = Roman Catholic (derogatory) — AI correctly resolves to Catholic Church"
+  },
+  {
+    "bookId": 2701,
+    "phrase": "Holy One",
+    "expected": "God in Christianity",
+    "verdict": "ok",
+    "_reason": "Holy One = divine title for God — should resolve to God article, not Book of Revelation"
+  },
+  {
+    "bookId": 2701,
+    "phrase": "Albino",
+    "expected": "Albinism",
+    "verdict": "ok",
+    "_reason": "Melville discusses albinism in the whiteness chapter — AI correctly resolves to Albinism"
+  },
+  {
+    "bookId": 2701,
+    "phrase": "Virginia's Blue Ridge",
+    "expected": null,
+    "verdict": "suppress",
+    "_reason": "Virginia Blue Ridge Railway — should be Blue Ridge Mountains"
+  },
+  {
+    "bookId": 2701,
+    "phrase": "Southern Seas",
+    "expected": "Southern Ocean",
+    "verdict": "ok",
+    "_reason": "Should be Southern Ocean — AI now correctly resolves this"
+  }
+]

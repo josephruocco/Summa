@@ -1,0 +1,45 @@
+[
+  {
+    "bookId": 174,
+    "phrase": "Southwark",
+    "annotation_type": "wikipedia",
+    "expected": "Southwark"
+  },
+  {
+    "bookId": 174,
+    "phrase": "Adonis",
+    "annotation_type": "wikipedia",
+    "expected": "Adonis"
+  },
+  {
+    "bookId": 174,
+    "phrase": "Harry Where",
+    "annotation_type": "suppress",
+    "_reason": "Harry Potter — 'Harry' here is Lord Henry Wotton in Dorian Gray"
+  },
+  {
+    "bookId": 174,
+    "phrase": "Harry Why",
+    "annotation_type": "suppress",
+    "_reason": "Harry Potter — same issue, mangled phrase"
+  },
+  {
+    "bookId": 174,
+    "phrase": "Unconsciously",
+    "annotation_type": "suppress",
+    "_reason": "Unconscious mind — 'unconsciously' is an adverb, not a proper reference"
+  },
+  {
+    "bookId": 174,
+    "phrase": "Venetians",
+    "annotation_type": "wikipedia",
+    "expected": "Venetian painting",
+    "_reason": "Basil says oil-painting was to the Venetians — refers to Venetian school of painting"
+  },
+  {
+    "bookId": 174,
+    "phrase": "Lord Goodbody",
+    "annotation_type": "suppress",
+    "_reason": "Slim Goodbody is a children's TV character — fictional aristocrat name"
+  }
+]

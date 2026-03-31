@@ -1,0 +1,15 @@
+[
+  {
+    "bookId": 1399,
+    "phrase": "Wiesbaden",
+    "annotation_type": "wikipedia",
+    "expected": "Wiesbaden",
+    "_reason": "German city where Oblonsky's brother-in-law gambled"
+  },
+  {
+    "bookId": 1399,
+    "phrase": "Thank God",
+    "annotation_type": "suppress",
+    "_reason": "Common expression, not a Wikipedia reference"
+  }
+]

@@ -1,0 +1,63 @@
+[
+  {
+    "bookId": 4300,
+    "phrase": "Stephen Dedalus",
+    "annotation_type": "wikipedia",
+    "expected": "Stephen Dedalus"
+  },
+  {
+    "bookId": 4300,
+    "phrase": "Kinch",
+    "annotation_type": "wikipedia",
+    "expected": "Stephen Dedalus",
+    "_reason": "Kinch is Mulligan's nickname for Stephen Dedalus"
+  },
+  {
+    "bookId": 4300,
+    "phrase": "Chrysostomos",
+    "annotation_type": "wikipedia",
+    "expected": "John Chrysostom",
+    "_reason": "Mulligan calls Stephen 'Chrysostomos' (golden-mouthed), a reference to the Church Father"
+  },
+  {
+    "bookId": 4300,
+    "phrase": "Introibo",
+    "annotation_type": "wikipedia",
+    "expected": "Psalm 43",
+    "_reason": "Introibo ad altare Dei — opening of the Latin Mass / Psalm 43"
+  },
+  {
+    "bookId": 4300,
+    "phrase": "Kingstown",
+    "annotation_type": "wikipedia",
+    "expected": "Dún Laoghaire",
+    "_reason": "Kingstown is the former name of Dún Laoghaire, the Dublin port town"
+  },
+  {
+    "bookId": 4300,
+    "phrase": "Algy",
+    "annotation_type": "wikipedia",
+    "expected": "Algernon Charles Swinburne",
+    "_reason": "Mulligan quotes Swinburne, calling him 'Algy'"
+  },
+  {
+    "bookId": 4300,
+    "phrase": "Caliban",
+    "annotation_type": "wikipedia",
+    "expected": "Caliban",
+    "_reason": "Mulligan calls Stephen 'poor dogsbody' and references The Tempest"
+  },
+  {
+    "bookId": 4300,
+    "phrase": "Thalatta",
+    "annotation_type": "wikipedia",
+    "expected": "Anabasis (Xenophon)",
+    "_reason": "Thalatta! Thalatta! — the famous sea-cry from Xenophon's Anabasis, Book IV"
+  },
+  {
+    "bookId": 4300,
+    "phrase": "Scutter",
+    "annotation_type": "suppress",
+    "_reason": "Hiberno-English slang, not a reference"
+  }
+]

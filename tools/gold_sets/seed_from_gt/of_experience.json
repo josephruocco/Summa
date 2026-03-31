@@ -1,0 +1,46 @@
+[
+  {
+    "bookId": 3600,
+    "phrase": "Alcibiades",
+    "annotation_type": "wikipedia",
+    "expected": "Alcibiades"
+  },
+  {
+    "bookId": 3600,
+    "phrase": "Heraclitus",
+    "annotation_type": "wikipedia",
+    "expected": "Heraclitus"
+  },
+  {
+    "bookId": 3600,
+    "phrase": "Cyrenaics",
+    "annotation_type": "wikipedia",
+    "expected": "Cyrenaics"
+  },
+  {
+    "bookId": 3600,
+    "phrase": "Crates",
+    "annotation_type": "wikipedia",
+    "expected": "Crates of Thebes",
+    "_reason": "AI correctly resolves to Crates of Thebes (Cynic philosopher referenced by Montaigne)"
+  },
+  {
+    "bookId": 3600,
+    "phrase": "Mus",
+    "annotation_type": "suppress",
+    "_reason": "Memphis University School — completely wrong"
+  },
+  {
+    "bookId": 3600,
+    "phrase": "Estienne de la Boetie",
+    "annotation_type": "wikipedia",
+    "expected": "Étienne de La Boétie",
+    "_reason": "AI correctly resolves — Montaigne's best friend"
+  },
+  {
+    "bookId": 3600,
+    "phrase": "Orat We",
+    "annotation_type": "suppress",
+    "_reason": "Al-Taqaddum Air Base — obviously wrong, mangled Latin phrase"
+  }
+]

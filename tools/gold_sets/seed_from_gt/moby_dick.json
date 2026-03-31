@@ -1,0 +1,139 @@
+[
+  {
+    "bookId": 2701,
+    "phrase": "Ahab",
+    "annotation_type": "wikipedia",
+    "expected": "Ahab"
+  },
+  {
+    "bookId": 2701,
+    "phrase": "Rocky Mountains",
+    "annotation_type": "wikipedia",
+    "expected": "Rocky Mountains"
+  },
+  {
+    "bookId": 2701,
+    "phrase": "Alleghanies",
+    "annotation_type": "wikipedia",
+    "expected": "Allegheny Mountains"
+  },
+  {
+    "bookId": 2701,
+    "phrase": "Great Spirit",
+    "annotation_type": "wikipedia",
+    "expected": "Great Spirit"
+  },
+  {
+    "bookId": 2701,
+    "phrase": "White Squall",
+    "annotation_type": "wikipedia",
+    "expected": "White squall"
+  },
+  {
+    "bookId": 2701,
+    "phrase": "Froissart",
+    "annotation_type": "wikipedia",
+    "expected": "Jean Froissart"
+  },
+  {
+    "bookId": 2701,
+    "phrase": "White Tower of London",
+    "annotation_type": "wikipedia",
+    "expected": "White Tower (Tower of London)"
+  },
+  {
+    "bookId": 2701,
+    "phrase": "Siam",
+    "annotation_type": "wikipedia",
+    "expected": "Thailand"
+  },
+  {
+    "bookId": 2701,
+    "phrase": "Albatross",
+    "annotation_type": "wikipedia",
+    "expected": "Albatross"
+  },
+  {
+    "bookId": 2701,
+    "phrase": "Coleridge",
+    "annotation_type": "wikipedia",
+    "expected": "Samuel Taylor Coleridge"
+  },
+  {
+    "bookId": 2701,
+    "phrase": "Iroquois",
+    "annotation_type": "wikipedia",
+    "expected": "Iroquois"
+  },
+  {
+    "bookId": 2701,
+    "phrase": "Great Jove",
+    "annotation_type": "wikipedia",
+    "expected": "Jupiter (god)",
+    "_reason": "Jove = Jupiter (Roman chief deity) — AI correctly resolves to Jupiter (god)"
+  },
+  {
+    "bookId": 2701,
+    "phrase": "Romish",
+    "annotation_type": "wikipedia",
+    "expected": "Catholic Church",
+    "_reason": "Romish = Roman Catholic (derogatory) — AI correctly resolves to Catholic Church"
+  },
+  {
+    "bookId": 2701,
+    "phrase": "Holy One",
+    "annotation_type": "wikipedia",
+    "expected": "God in Christianity",
+    "_reason": "Holy One = divine title for God — should resolve to God article, not Book of Revelation"
+  },
+  {
+    "bookId": 2701,
+    "phrase": "Albino",
+    "annotation_type": "wikipedia",
+    "expected": "Albinism",
+    "_reason": "Melville discusses albinism in the whiteness chapter — AI correctly resolves to Albinism"
+  },
+  {
+    "bookId": 2701,
+    "phrase": "Virginia's Blue Ridge",
+    "annotation_type": "suppress",
+    "_reason": "Virginia Blue Ridge Railway — should be Blue Ridge Mountains"
+  },
+  {
+    "bookId": 2701,
+    "phrase": "Southern Seas",
+    "annotation_type": "wikipedia",
+    "expected": "Southern Ocean",
+    "_reason": "Should be Southern Ocean — AI now correctly resolves this"
+  },
+  {
+    "bookId": 2701,
+    "phrase": "Whiteness of the Whale",
+    "annotation_type": "suppress",
+    "_reason": "Chapter heading phrase; current pipeline wrongly resolves it to the film 'The Squid and the Whale'"
+  },
+  {
+    "bookId": 2701,
+    "phrase": "Lord of the White Elephants",
+    "annotation_type": "suppress",
+    "_reason": "Current pipeline collapses the Siamese royal epithet into the modern 'white elephant' idiom"
+  },
+  {
+    "bookId": 2701,
+    "phrase": "Cæsarian",
+    "annotation_type": "suppress",
+    "_reason": "Adjectival imperial usage in Melville; current pipeline wrongly resolves it to Caesarean section"
+  },
+  {
+    "bookId": 2701,
+    "phrase": "Red Men of America",
+    "annotation_type": "suppress",
+    "_reason": "Current pipeline absurdly resolves this phrase to Bank of America"
+  },
+  {
+    "bookId": 2701,
+    "phrase": "White Dog",
+    "annotation_type": "suppress",
+    "_reason": "Current pipeline wrongly resolves the sacred White Dog reference to White Dog Cafe"
+  }
+]

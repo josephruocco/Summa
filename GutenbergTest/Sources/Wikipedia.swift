@@ -19,6 +19,22 @@ struct WikiResult: Codable, Sendable, Hashable {
     var score: Double?
 }
 
+struct AIDisambiguationDecision: Codable, Sendable {
+    var shouldAnnotate: Bool
+    var matchType: String?
+    var wikipediaTitle: String?
+    var confidence: Double
+    var reason: String
+
+    enum CodingKeys: String, CodingKey {
+        case shouldAnnotate = "should_annotate"
+        case matchType = "match_type"
+        case wikipediaTitle = "wikipedia_title"
+        case confidence
+        case reason
+    }
+}
+
 enum Wikipedia {
     // In-memory negative cache: terms confirmed to have no Wikipedia article are skipped
     // on subsequent page scans without re-querying. Keyed on normalized term.
@@ -292,13 +308,17 @@ enum Wikipedia {
         // enough to warrant a cross-check against the book's context.
         let shouldTryAI = allBaseNotFound || bestDirectScore < 0.90 || (bestPhraseScore > 0 && bestPhraseScore < 0.80)
         if shouldTryAI, let bookCtx = bookContext {
-            let aiSuggested = await aiSuggestTitle(
+            let aiDecision = await aiSuggestTitle(
                 phrase: requested,
                 contextBefore: contextBefore,
                 contextAfter: contextAfter,
                 bookContext: bookCtx
             )
-            if let suggestedTitle = aiSuggested {
+            if let aiDecision,
+               aiDecision.shouldAnnotate,
+               aiDecision.confidence >= 0.90,
+               let suggestedTitle = aiDecision.wikipediaTitle,
+               !suggestedTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 // Try direct fetch first, then fall back to search if the exact title doesn't exist
                 let aiResult: WikiResult?
                 if let direct = await fetchSummary(title: suggestedTitle), direct.status == .ok {
@@ -323,16 +343,17 @@ enum Wikipedia {
                         extract: aiResult.extract,
                         pageURL: aiResult.pageURL,
                         thumbnailURL: aiResult.thumbnailURL,
-                        debug: "ai-suggested: \(suggestedTitle)",
-                        score: 0.75
+                        debug: "ai-suggested: \(suggestedTitle) | match_type=\(aiDecision.matchType ?? "unknown") | reason=\(aiDecision.reason)",
+                        score: max(aiDecision.confidence, aiResult.score ?? 0)
                     )
                 }
             } else if bestDirectScore < 0.90 {
-                // AI said "none" and the pipeline result was already uncertain.
-                // Suppress rather than surface a likely-wrong annotation.
-                log("  🤖 AI said none for \"\(requested)\" (score \(String(format: "%.2f", bestDirectScore))) — suppressing")
+                let aiReason = aiDecision?.reason ?? "AI determined: not a reference in this context"
+                let aiConfidence = aiDecision.map { String(format: "%.2f", $0.confidence) } ?? "n/a"
+                let aiMatchType = aiDecision?.matchType ?? "none"
+                log("  🤖 AI rejected \"\(requested)\" (confidence \(aiConfidence), match_type \(aiMatchType)) — suppressing")
                 if let bs = bestSuppressedResult {
-                    return suppress(result: bs, reason: "AI determined: not a reference in this context")
+                    return suppress(result: bs, reason: aiReason)
                 }
             }
         }
@@ -354,7 +375,7 @@ enum Wikipedia {
         contextBefore: String?,
         contextAfter: String?,
         bookContext: String
-    ) async -> String? {
+    ) async -> AIDisambiguationDecision? {
         let contextSnippet = [contextBefore, contextAfter]
             .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
@@ -385,37 +406,55 @@ enum Wikipedia {
         Nearby context: "…\(truncatedContext)…"
 
         Task: identify the single best Wikipedia article for THIS SPECIFIC PHRASE as used in THIS PASSAGE.
+        Return a JSON object with exactly these fields:
+        {
+          "should_annotate": true,
+          "match_type": "exact",
+          "wikipedia_title": "Exact article title",
+          "confidence": 0.0,
+          "reason": "brief reason"
+        }
         Rules:
-        - Resolve the phrase itself as used in context.
-        - If the phrase is a descriptive title, epithet, honorific, poetic expression, or culture-bound wording, you should still link it when it clearly points to a specific underlying real-world referent with a stable Wikipedia article.
-        - In such cases, prefer the underlying referent over "none".
-        - Prefer the most specific concrete referent clearly intended by the sentence.
-        - Do not jump to a modern film, restaurant, company, song, or product unless the sentence clearly supports that sense.
-        - When multiple plausible referents exist, choose "none" unless one is clearly intended by the sentence.
-        - Prefer historical or literary referents supported by the passage over modern commercial or pop-culture entities.
-        - If the phrase does not clearly point to a specific stable referent, reply "none".
-        Examples:
-          "Venetians" in an art context → "Venetian painting"
-          "Romish" → "Catholic Church"
-          "Great Jove" → "Jupiter (god)"
-          "Carl Johann Street" → "Karl Johans gate"
-          "Crates" in a philosophy context → "Crates of Thebes"
-          "Kingstown" in an Irish/Dublin context → "Dún Laoghaire"
-          "Thalatta" in a literary/classical context → "Anabasis (Xenophon)"
-          "Lord of the White Elephants" in a Southeast Asian royal context → "White elephant (animal)"
-        Reply with ONLY the exact Wikipedia article title.
-        Reply "none" if:
-        - It is a common word or expression
-        - It is a pronoun, adverb, or generic descriptor
-        - It is a minor fictional character with no dedicated Wikipedia article
-        - It is a chapter heading or thematic phrase
-        - It only loosely suggests a concept and does not clearly identify a specific referent
-        - You are not confident there is a specific Wikipedia article for the referent intended in context
-        NOTE:
-        - Major fictional characters do have Wikipedia articles and should be annotated.
-        - For religious titles like "Holy One" or "Heavenly Father", reply with the primary Wikipedia article for the deity as understood in context.
-        - For descriptive epithets, titles, or figurative labels, return the article for the underlying referent when that referent is plainly identifiable from the passage and is the thing actually being invoked.
-        Do NOT reply with an explanation or sentence — only the article title or "none".
+        - Resolve the phrase as used in context, not by surface resemblance alone.
+        - Prefer the article for the exact referent intended by the passage.
+        - If the phrase is a descriptive title, epithet, honorific, poetic expression, or culture-bound wording, you may map it to the underlying real-world referent only when that referent is clearly and specifically intended.
+        - Do not annotate when the phrase is merely:
+          - a chapter heading
+          - a thematic phrase
+          - a generic descriptor
+          - a loose symbolic expression
+          - an adjective that does not stably denote one encyclopedic subject
+        - Reject modern title collisions. Do not choose an article just because its title overlaps the phrase.
+        - Reject commercial, organizational, entertainment, restaurant, product, or pop-culture matches unless the literary passage clearly means that exact thing.
+        - If multiple articles are plausible, choose "should_annotate": false unless one is clearly best.
+        - Be conservative. Prefer no annotation over a weak or merely plausible match.
+        Special disambiguation rules:
+        - For archaic ethnonyms or historical literary labels, map to the relevant people or civilization only if that is plainly what the passage means.
+        - For imperial, dynastic, religious, or mythological adjectives, annotate only if the adjective clearly points to one stable historical, political, or religious referent.
+        - For royal epithets built from animals, objects, or symbols, annotate the underlying animal, object, or symbol only if that is clearly the thing being invoked rather than the wording of the epithet itself.
+        - For headings and thematic labels, never annotate unless they directly name a standalone subject.
+        Negative examples:
+        - "Whiteness of the Whale" → no annotation
+        - "Red Men of America" → not a bank or fraternal order
+        - "White Dog" in a symbolic or literary passage → not a restaurant, film, or brand
+        - "Lord of the White Elephants" → do not choose a page only because "white elephant" appears in the phrase unless the animal or symbol is clearly the intended referent
+        - "Cæsarian" → do not map automatically to a dynasty, empire, or biography unless the context clearly identifies the exact referent
+        Positive examples:
+        - "Great Jove" → "Jupiter (god)"
+        - "Romish" → "Catholic Church"
+        - "Holy One" in a Christian context → "God in Christianity"
+        - "Lord of the White Elephants" in a context explicitly invoking royal white elephants as sacred animals or symbols → "White elephant"
+        - "Red Men of America" in a context explicitly referring to Native peoples → "Indigenous peoples of the Americas"
+        Additional guardrails:
+        - If the candidate article is a modern company, bank, restaurant, film, TV show, album, or brand, reject it unless the passage explicitly indicates that modern sense.
+        - If the phrase appears in title case because it is a chapter heading, default to no annotation.
+        - If the phrase is a single adjective or adjectival form, annotate only when the modified noun or surrounding clause makes the referent unambiguous.
+        Decision standard:
+        - Set should_annotate = true only if confidence >= 0.90
+        - Set should_annotate = false for metaphorical, thematic, weak, or collision-prone matches
+        - match_type must be one of: "exact", "underlying_referent", "none"
+        - reason must be brief and mention the disambiguation basis
+        Return only the JSON object.
         """
 
         let debugPhrases = Set(
@@ -428,14 +467,14 @@ enum Wikipedia {
             log("  🤖 PROMPT FOR \"\(phrase)\":\n\(prompt)\n")
         }
 
-        if let suggestion = await openAISuggestTitle(prompt: prompt) {
-            return suggestion
+        if let decision = await openAISuggestTitle(prompt: prompt) {
+            return decision
         }
 
         return await claudeSuggestTitle(prompt: prompt)
     }
 
-    private static func openAISuggestTitle(prompt: String) async -> String? {
+    private static func openAISuggestTitle(prompt: String) async -> AIDisambiguationDecision? {
         guard let apiKey = envValue("OPENAI_API_KEY"),
               !apiKey.isEmpty else { return nil }
 
@@ -443,7 +482,7 @@ enum Wikipedia {
         let body: [String: Any] = [
             "model": model,
             "reasoning": ["effort": "minimal"],
-            "max_output_tokens": 60,
+            "max_output_tokens": 180,
             "input": [[
                 "role": "user",
                 "content": [[
@@ -470,16 +509,16 @@ enum Wikipedia {
         }
 
         let text = responseText(from: json)
-        return cleanedAISuggestion(text)
+        return parsedAIDecision(text)
     }
 
-    private static func claudeSuggestTitle(prompt: String) async -> String? {
+    private static func claudeSuggestTitle(prompt: String) async -> AIDisambiguationDecision? {
         guard let apiKey = envValue("ANTHROPIC_API_KEY"),
               !apiKey.isEmpty else { return nil }
 
         let body: [String: Any] = [
             "model": "claude-sonnet-4-6",
-            "max_tokens": 60,
+            "max_tokens": 180,
             "temperature": 0,
             "messages": [["role": "user", "content": prompt]]
         ]
@@ -501,7 +540,7 @@ enum Wikipedia {
               let content = (json["content"] as? [[String: Any]])?.first,
               let text = content["text"] as? String else { return nil }
 
-        return cleanedAISuggestion(text)
+        return parsedAIDecision(text)
     }
 
     private static func responseText(from json: [String: Any]) -> String? {
@@ -524,25 +563,48 @@ enum Wikipedia {
         return nil
     }
 
-    private static func cleanedAISuggestion(_ text: String?) -> String? {
+    private static func parsedAIDecision(_ text: String?) -> AIDisambiguationDecision? {
         guard let text else { return nil }
+        guard let jsonData = extractJSONObject(from: text)?.data(using: .utf8) else { return nil }
+        let decoder = JSONDecoder()
+        guard let decision = try? decoder.decode(AIDisambiguationDecision.self, from: jsonData) else { return nil }
 
-        let suggestion = text.trimmingCharacters(in: .whitespacesAndNewlines)
-            .trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
-        guard !suggestion.isEmpty,
-              suggestion.lowercased() != "none",
-              suggestion.lowercased() != "\"none\"" else { return nil }
+        let cleanedTitle = decision.wikipediaTitle?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedMatchType = (decision.matchType ?? (decision.shouldAnnotate ? "exact" : "none"))
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
 
-        let wordCount = suggestion.split(separator: " ").count
-        let looksLikeSentence = wordCount > 10
-            || suggestion.hasPrefix("I ")
-            || suggestion.contains(". ")
-            || suggestion.contains("refers to")
-            || suggestion.contains("I need")
-        guard !looksLikeSentence else { return nil }
+        guard ["exact", "underlying_referent", "none"].contains(normalizedMatchType) else { return nil }
+        guard decision.confidence >= 0, decision.confidence <= 1 else { return nil }
+        guard !decision.reason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
 
-        log("  🤖 AI suggested → \(suggestion)")
-        return suggestion
+        if decision.shouldAnnotate {
+            guard let cleanedTitle, !cleanedTitle.isEmpty, normalizedMatchType != "none" else { return nil }
+        }
+
+        let cleanedDecision = AIDisambiguationDecision(
+            shouldAnnotate: decision.shouldAnnotate,
+            matchType: normalizedMatchType,
+            wikipediaTitle: cleanedTitle?.isEmpty == true ? nil : cleanedTitle,
+            confidence: decision.confidence,
+            reason: decision.reason.trimmingCharacters(in: .whitespacesAndNewlines)
+        )
+        log("  🤖 AI decision → annotate=\(cleanedDecision.shouldAnnotate) match_type=\(cleanedDecision.matchType ?? "none") confidence=\(String(format: "%.2f", cleanedDecision.confidence)) title=\(cleanedDecision.wikipediaTitle ?? "nil") reason=\(cleanedDecision.reason)")
+        return cleanedDecision
+    }
+
+    private static func extractJSONObject(from text: String) -> String? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.hasPrefix("{"), trimmed.hasSuffix("}") {
+            return trimmed
+        }
+
+        if let start = trimmed.firstIndex(of: "{"),
+           let end = trimmed.lastIndex(of: "}") {
+            return String(trimmed[start...end])
+        }
+
+        return nil
     }
 
     private static func fetchSummary(title: String) async -> WikiResult? {

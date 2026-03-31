@@ -58,6 +58,7 @@ enum Wikipedia {
         bookContext: String? = nil
     ) async -> WikiResult {
         let requested = term.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trace = shouldTraceLookup(requested)
         guard !requested.isEmpty else {
             return WikiResult(status: .error, requested: term, title: nil, extract: "No term.", pageURL: nil, thumbnailURL: nil, debug: nil, score: nil)
         }
@@ -89,6 +90,9 @@ enum Wikipedia {
 
         for query in retryQueries(for: requested) {
             if let direct = await fetchSummary(title: query) {
+                if trace {
+                    log("  🔎 TRACE direct query=\"\(query)\" status=\(direct.status.rawValue) title=\(direct.title ?? "nil")")
+                }
                 if direct.status != .notFound { allBaseNotFound = false }
 
                 let directScore = direct.status == .ok ? scoreCandidate(
@@ -132,6 +136,9 @@ enum Wikipedia {
 
                 if !suspiciousDirect,
                    let accepted = verify(result: direct, requested: requested, contextBefore: contextBefore, contextAfter: contextAfter) {
+                    if trace {
+                        log("  🔎 TRACE accepted direct title=\(accepted.title ?? "nil") score=\(String(format: "%.2f", accepted.score ?? 0))")
+                    }
                     // Very high confidence → return immediately; uncertain → fall through to AI
                     if let s = accepted.score, s >= 0.90 {
                         return accepted
@@ -146,6 +153,9 @@ enum Wikipedia {
                     hitDisambiguation = true
                     let searchTerm = contextAugmentedQuery(query, contextBefore: contextBefore, contextAfter: contextAfter) ?? query
                     let resolved = await resolveViaSearch(searchTerm, requested: requested, contextBefore: contextBefore, contextAfter: contextAfter)
+                    if trace, let resolved {
+                        log("  🔎 TRACE disamb-search term=\"\(searchTerm)\" status=\(resolved.status.rawValue) title=\(resolved.title ?? "nil") score=\(String(format: "%.2f", resolved.score ?? 0))")
+                    }
                     if let resolved, let accepted = verify(result: resolved, requested: requested, contextBefore: contextBefore, contextAfter: contextAfter) {
                         // High-confidence disambiguation result: return immediately.
                         // Uncertain result: store as candidate and fall through to AI.
@@ -206,6 +216,9 @@ enum Wikipedia {
         if effectivelyNotFound && looksLikeMeaningfulPhrase {
             for query in phraseSearchQueries(for: requested) {
                 if let resolved = await resolveViaSearch(query, requested: query, contextBefore: contextBefore, contextAfter: contextAfter) {
+                    if trace {
+                        log("  🔎 TRACE phrase-search query=\"\(query)\" status=\(resolved.status.rawValue) title=\(resolved.title ?? "nil") score=\(String(format: "%.2f", resolved.score ?? 0))")
+                    }
                     if resolved.status == .ok, let s = resolved.score {
                         bestPhraseScore = max(bestPhraseScore, s)
                         // High-confidence results return immediately; uncertain ones fall through to AI
@@ -268,6 +281,9 @@ enum Wikipedia {
                     : (contextAugmentedQuery(requested, contextBefore: contextBefore, contextAfter: contextAfter) ?? requested)
             }
             if let resolved = await resolveViaSearch(searchTerm, requested: requested, contextBefore: contextBefore, contextAfter: contextAfter) {
+                if trace {
+                    log("  🔎 TRACE fallback-search term=\"\(searchTerm)\" status=\(resolved.status.rawValue) title=\(resolved.title ?? "nil") score=\(String(format: "%.2f", resolved.score ?? 0))")
+                }
                 // resolveViaSearch scores candidates using the search result title (e.g. "Christiania"),
                 // but stores the fetched summary result whose title may be the redirect target (e.g. "Oslo").
                 // Re-running verify() here would re-score against the redirect title and fail. Trust the
@@ -685,6 +701,7 @@ enum Wikipedia {
         contextAfter: String?
     ) async -> WikiResult? {
         let q = term.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trace = shouldTraceLookup(requested)
         guard !q.isEmpty else { return nil }
 
         // Brave Search finds the right Wikipedia page title via a real web index —
@@ -693,6 +710,9 @@ enum Wikipedia {
         if let braveResult = await resolveViaBraveSearch(q, requested: requested,
                                                          contextBefore: contextBefore,
                                                          contextAfter: contextAfter) {
+            if trace {
+                log("  🔎 TRACE search-source=brave term=\"\(q)\" title=\(braveResult.title ?? "nil") score=\(String(format: "%.2f", braveResult.score ?? 0))")
+            }
             return braveResult
         }
 
@@ -776,6 +796,9 @@ enum Wikipedia {
             }.map { $0.1 }
             let best = sorted[0].0
             let margin = sorted.count > 1 ? sorted[0].1 - sorted[1].1 : sorted[0].1
+            if trace {
+                log("  🔎 TRACE search-source=wiki term=\"\(q)\" best=\(best.title ?? "nil") score=\(String(format: "%.2f", best.score ?? 0)) margin=\(String(format: "%.2f", margin))")
+            }
 
             if best.status == .disambiguation {
                 return suppress(result: best, reason: "top candidate remained disambiguation")
@@ -1715,6 +1738,16 @@ enum Wikipedia {
         "as", "he", "she", "they", "his", "her", "their", "not", "but",
         "which", "who", "what", "when", "where", "how", "also", "such"
     ]
+
+    private static func shouldTraceLookup(_ requested: String) -> Bool {
+        let tracePhrases = Set(
+            (envValue("SUMMA_TRACE_LOOKUPS") ?? "")
+                .split(separator: ",")
+                .map { normalize(String($0)) }
+                .filter { !$0.isEmpty }
+        )
+        return tracePhrases.contains(normalize(requested))
+    }
 
     // Extracts the parenthetical disambiguator from a title, e.g. "Mercury (planet)" → "planet".
     private static func extractParenthetical(_ s: String) -> String? {

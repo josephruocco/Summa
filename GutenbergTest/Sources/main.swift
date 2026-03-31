@@ -253,24 +253,34 @@ struct DemoAnnotation: Encodable {
     struct Span: Encodable { let start: Int; let end: Int }
 
     struct Payload: Encodable {
+        let annotationType: String?
         let summary: String?
         let wikiTitle: String?
+        let gloss: GlossPayload?
         // Vocab only
         let dictionary: DictPayload?
 
         // Custom encoding so nil fields are omitted entirely
         func encode(to encoder: Encoder) throws {
             var c = encoder.container(keyedBy: CodingKeys.self)
+            if let annotationType { try c.encode(annotationType, forKey: .annotationType) }
             if let summary  { try c.encode(summary,   forKey: .summary) }
             if let wikiTitle { try c.encode(wikiTitle, forKey: .wikiTitle) }
+            if let gloss { try c.encode(gloss, forKey: .gloss) }
             if let dictionary { try c.encode(dictionary, forKey: .dictionary) }
         }
-        enum CodingKeys: String, CodingKey { case summary, wikiTitle, dictionary }
+        enum CodingKeys: String, CodingKey { case annotationType, summary, wikiTitle, gloss, dictionary }
     }
 
     struct DictPayload: Encodable {
         let definition: String
         let headword: String
+    }
+
+    struct GlossPayload: Encodable {
+        let title: String?
+        let text: String
+        let reason: String?
     }
 }
 
@@ -432,12 +442,13 @@ let commonWords = CommonWordsLoader.set
 struct BookRunStats {
     let slug: String
     var ok        = 0
+    var gloss     = 0
     var notFound  = 0
     var suppressed = 0
     var scoreSum  = 0.0
     var scoreCount = 0
 
-    var total: Int { ok + notFound + suppressed }
+    var total: Int { ok + gloss + notFound + suppressed }
     var okPct: Double { total > 0 ? Double(ok) / Double(total) * 100 : 0 }
     var avgScore: Double { scoreCount > 0 ? scoreSum / Double(scoreCount) : 0 }
 }
@@ -446,7 +457,7 @@ var allBookStats: [BookRunStats] = []
 
 if !demoMode {
     // TSV mode
-    print(["bookID","bookTitle","phrase","kind","status","wikiTitle","score","extract","debug"]
+    print(["bookID","bookTitle","phrase","kind","status","annotationType","wikiTitle","score","extract","gloss","debug"]
         .joined(separator: "\t"))
 }
 
@@ -481,6 +492,86 @@ for book in bookList {
     for candidate in refs {
         guard seenTerms.insert(candidate.phrase.lowercased()).inserted else { continue }
 
+        let annotationPlan = await Wikipedia.planAnnotation(
+            candidate.phrase,
+            contextBefore: candidate.contextBefore.isEmpty ? nil : candidate.contextBefore,
+            contextAfter: candidate.contextAfter.isEmpty ? nil : candidate.contextAfter,
+            bookContext: book.chapterTitle
+        )
+
+        if let annotationPlan, annotationPlan.confidence >= 0.90 {
+            switch annotationPlan.annotationType {
+            case "suppress":
+                bookStats.suppressed += 1
+                log("  ~ \(candidate.phrase) → suppressed  \(annotationPlan.confidence.formatted(.number.precision(.fractionLength(2))))")
+                if !demoMode {
+                    print([
+                        String(book.id),
+                        tsvEscape(book.title),
+                        tsvEscape(candidate.phrase),
+                        "ref",
+                        "suppressed",
+                        "suppress",
+                        "",
+                        String(format: "%.2f", annotationPlan.confidence),
+                        "",
+                        "",
+                        tsvEscape(annotationPlan.reason)
+                    ].joined(separator: "\t"))
+                }
+                try? await Task.sleep(nanoseconds: 200_000_000)
+                continue
+            case "gloss":
+                bookStats.gloss += 1
+                bookStats.scoreSum += annotationPlan.confidence
+                bookStats.scoreCount += 1
+                log("  ✓ \(candidate.phrase) → gloss  \(annotationPlan.confidence.formatted(.number.precision(.fractionLength(2))))")
+                if !demoMode {
+                    print([
+                        String(book.id),
+                        tsvEscape(book.title),
+                        tsvEscape(candidate.phrase),
+                        "ref",
+                        "gloss",
+                        "gloss",
+                        "",
+                        String(format: "%.2f", annotationPlan.confidence),
+                        "",
+                        tsvEscape(annotationPlan.gloss ?? ""),
+                        tsvEscape(annotationPlan.reason)
+                    ].joined(separator: "\t"))
+                }
+
+                if demoMode,
+                   let gloss = annotationPlan.gloss,
+                   let spanInfo = findSpan(of: candidate.phrase, in: text, after: text.startIndex) {
+                    let ann = DemoAnnotation(
+                        id: "g|\(candidate.phrase.lowercased().replacingOccurrences(of: " ", with: "_"))",
+                        kind: "reference",
+                        surface: candidate.phrase,
+                        span: DemoAnnotation.Span(start: spanInfo.start, end: spanInfo.end),
+                        confidence: annotationPlan.confidence,
+                        payload: DemoAnnotation.Payload(
+                            annotationType: "gloss",
+                            summary: gloss,
+                            wikiTitle: nil,
+                            gloss: DemoAnnotation.GlossPayload(
+                                title: annotationPlan.glossTitle,
+                                text: gloss,
+                                reason: annotationPlan.reason
+                            ),
+                            dictionary: nil
+                        )
+                    )
+                    annotations.append(ann)
+                }
+                try? await Task.sleep(nanoseconds: 200_000_000)
+                continue
+            default:
+                break
+            }
+        }
+
         let result = await Wikipedia.lookup(
             candidate.phrase,
             contextBefore: candidate.contextBefore.isEmpty ? nil : candidate.contextBefore,
@@ -508,9 +599,11 @@ for book in bookList {
                 tsvEscape(candidate.phrase),
                 "ref",
                 result.status.rawValue,
+                "wikipedia",
                 tsvEscape(result.title ?? ""),
                 result.score.map { String(format: "%.2f", $0) } ?? "",
                 tsvEscape(String((result.extract ?? "").prefix(120))),
+                "",
                 tsvEscape(result.debug ?? "")
             ].joined(separator: "\t"))
         }
@@ -526,8 +619,10 @@ for book in bookList {
                     span: DemoAnnotation.Span(start: spanInfo.start, end: spanInfo.end),
                     confidence: confidence,
                     payload: DemoAnnotation.Payload(
+                        annotationType: "wikipedia",
                         summary: result.extract,
                         wikiTitle: result.title,
+                        gloss: nil,
                         dictionary: nil
                     )
                 )
@@ -551,8 +646,10 @@ for book in bookList {
                         span: DemoAnnotation.Span(start: spanInfo.start, end: spanInfo.end),
                         confidence: 0.79,
                         payload: DemoAnnotation.Payload(
+                            annotationType: nil,
                             summary: nil,
                             wikiTitle: nil,
+                            gloss: nil,
                             dictionary: DemoAnnotation.DictPayload(
                                 definition: def,
                                 headword: candidate.phrase.lowercased()
@@ -603,9 +700,10 @@ for book in bookList {
 // MARK: - Write scores.log
 
 let totalOk         = allBookStats.reduce(0) { $0 + $1.ok }
+let totalGloss      = allBookStats.reduce(0) { $0 + $1.gloss }
 let totalNotFound   = allBookStats.reduce(0) { $0 + $1.notFound }
 let totalSuppressed = allBookStats.reduce(0) { $0 + $1.suppressed }
-let totalAll        = totalOk + totalNotFound + totalSuppressed
+let totalAll        = totalOk + totalGloss + totalNotFound + totalSuppressed
 let totalScoreSum   = allBookStats.reduce(0.0) { $0 + $1.scoreSum }
 let totalScoreCount = allBookStats.reduce(0) { $0 + $1.scoreCount }
 let overallOkPct    = totalAll > 0 ? Double(totalOk) / Double(totalAll) * 100 : 0
@@ -613,11 +711,11 @@ let overallAvgScore = totalScoreCount > 0 ? totalScoreSum / Double(totalScoreCou
 
 let timestamp = ISO8601DateFormatter().string(from: Date())
 var logLines: [String] = []
-logLines.append("=== \(timestamp)  ok=\(totalOk)/\(totalAll) (\(String(format:"%.0f", overallOkPct))%)  nf=\(totalNotFound)  sup=\(totalSuppressed)  avgScore=\(String(format:"%.3f", overallAvgScore)) ===")
+logLines.append("=== \(timestamp)  ok=\(totalOk)/\(totalAll) (\(String(format:"%.0f", overallOkPct))%)  gloss=\(totalGloss)  nf=\(totalNotFound)  sup=\(totalSuppressed)  avgScore=\(String(format:"%.3f", overallAvgScore)) ===")
 for s in allBookStats {
     let pct = String(format: "%.0f", s.okPct)
     let avg = String(format: "%.3f", s.avgScore)
-    logLines.append("  \(s.slug.padding(toLength: 20, withPad: " ", startingAt: 0))  ok=\(s.ok)/\(s.total) (\(pct)%)  nf=\(s.notFound)  sup=\(s.suppressed)  avgScore=\(avg)")
+    logLines.append("  \(s.slug.padding(toLength: 20, withPad: " ", startingAt: 0))  ok=\(s.ok)/\(s.total) (\(pct)%)  gloss=\(s.gloss)  nf=\(s.notFound)  sup=\(s.suppressed)  avgScore=\(avg)")
 }
 logLines.append("")
 

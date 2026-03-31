@@ -35,6 +35,24 @@ struct AIDisambiguationDecision: Codable, Sendable {
     }
 }
 
+struct AnnotationPlan: Codable, Sendable {
+    var annotationType: String
+    var confidence: Double
+    var wikipediaTitle: String?
+    var glossTitle: String?
+    var gloss: String?
+    var reason: String
+
+    enum CodingKeys: String, CodingKey {
+        case annotationType = "annotation_type"
+        case confidence
+        case wikipediaTitle = "wikipedia_title"
+        case glossTitle = "gloss_title"
+        case gloss
+        case reason
+    }
+}
+
 enum Wikipedia {
     // In-memory negative cache: terms confirmed to have no Wikipedia article are skipped
     // on subsequent page scans without re-querying. Keyed on normalized term.
@@ -49,6 +67,86 @@ enum Wikipedia {
         case .notFound:
             return "No Wikipedia page found."
         }
+    }
+
+    static func planAnnotation(
+        _ term: String,
+        contextBefore: String? = nil,
+        contextAfter: String? = nil,
+        bookContext: String? = nil
+    ) async -> AnnotationPlan? {
+        let requested = term.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !requested.isEmpty, let bookContext else { return nil }
+
+        let contextSnippet = [contextBefore, contextAfter]
+            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .joined(separator: " … ")
+        let truncatedContext = contextSnippet.count > 400
+            ? String(contextSnippet.prefix(400)) + "…"
+            : contextSnippet
+        let targetSentence = [contextBefore?.trimmingCharacters(in: .whitespacesAndNewlines),
+                              "[[\(requested)]]",
+                              contextAfter?.trimmingCharacters(in: .whitespacesAndNewlines)]
+            .compactMap { $0 }
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+        let truncatedSentence = targetSentence.count > 700
+            ? String(targetSentence.prefix(700)) + "…"
+            : targetSentence
+        let bookParts = bookContext.components(separatedBy: " — ")
+        let chapterLabel = bookParts.first ?? bookContext
+        let authorLabel = bookParts.count > 1 ? bookParts.last! : "Unknown"
+
+        let prompt = """
+        You are classifying candidate annotations in a literary text.
+
+        Book / chapter: \(chapterLabel)
+        Author: \(authorLabel)
+        Target phrase: "\(requested)"
+        Target sentence: "\(truncatedSentence)"
+        Nearby context: "…\(truncatedContext)…"
+
+        Return a JSON object with exactly these fields:
+        {
+          "annotation_type": "wikipedia",
+          "confidence": 0.0,
+          "wikipedia_title": "Exact article title or null",
+          "gloss_title": "Short gloss title or null",
+          "gloss": "Brief explanatory note or null",
+          "reason": "brief reason"
+        }
+
+        Annotation types:
+        - wikipedia: use only for true linkable references with a stable encyclopedic target
+        - gloss: use for meaningful literary, ritual, adjectival, cultural, or historical references where a short note is better than a brittle title match
+        - suppress: use for headings, thematic phrases, generic descriptors, loose symbolism, and weak collision-prone candidates
+
+        Rules:
+        - Wikipedia resolution should only be chosen for phrases classified as true linkable references.
+        - Prefer gloss over wikipedia when the passage clearly means something important but the phrase itself does not stably name one safe target.
+        - Prefer suppress over weak or collision-prone wikipedia matches.
+        - Single adjectival forms often belong in gloss or suppress, not wikipedia.
+        - Ritual, culture-bound, and period labels often belong in gloss if the modern article match is brittle.
+        - Chapter headings and thematic labels should be suppress.
+
+        Examples:
+        - "Great Jove" -> wikipedia / "Jupiter (god)"
+        - "Romish" -> wikipedia / "Catholic Church"
+        - "Cæsarian" -> gloss
+        - "White Dog" in an Iroquois ritual context -> gloss
+        - "Whiteness of the Whale" -> suppress
+
+        Constraints:
+        - Set confidence >= 0.90 only when you are highly confident.
+        - For gloss, provide a short explanatory note.
+        - Return only the JSON object.
+        """
+
+        if let plan = await openAIAnnotationPlan(prompt: prompt) {
+            return plan
+        }
+        return await claudeAnnotationPlan(prompt: prompt)
     }
 
     static func lookup(
@@ -224,6 +322,7 @@ enum Wikipedia {
         // Also covers 2-word abbreviated forms like "St Olav's" → Saint Olaf.
         let looksLikeMeaningfulPhrase = requested.contains(" ")
             && requested.split(separator: " ").count >= 2
+            && !isHighRiskLoosePhraseForSearch(requested)
         // Also run phrase search when Wikipedia found something but scored it essentially 0
         // (e.g. "St Olav's" → Wikipedia returns "Olaf II of Norway" with no word overlap →
         // clamped score 0.0, never flagged as suspicious since containsRequest fails).
@@ -544,6 +643,74 @@ enum Wikipedia {
         return parsedAIDecision(text)
     }
 
+    private static func openAIAnnotationPlan(prompt: String) async -> AnnotationPlan? {
+        guard let apiKey = envValue("OPENAI_API_KEY"),
+              !apiKey.isEmpty else { return nil }
+
+        let model = envValue("OPENAI_MODEL") ?? "gpt-5.4-mini"
+        let body: [String: Any] = [
+            "model": model,
+            "reasoning": ["effort": "minimal"],
+            "max_output_tokens": 220,
+            "input": [[
+                "role": "user",
+                "content": [[
+                    "type": "input_text",
+                    "text": prompt
+                ]]
+            ]]
+        ]
+
+        guard let bodyData = try? JSONSerialization.data(withJSONObject: body),
+              let url = URL(string: "https://api.openai.com/v1/responses") else { return nil }
+
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.timeoutInterval = 20
+        req.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = bodyData
+
+        guard let (data, resp) = try? await URLSession.shared.data(for: req),
+              (resp as? HTTPURLResponse)?.statusCode == 200,
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return nil
+        }
+
+        return parsedAnnotationPlan(responseText(from: json))
+    }
+
+    private static func claudeAnnotationPlan(prompt: String) async -> AnnotationPlan? {
+        guard let apiKey = envValue("ANTHROPIC_API_KEY"),
+              !apiKey.isEmpty else { return nil }
+
+        let body: [String: Any] = [
+            "model": "claude-sonnet-4-6",
+            "max_tokens": 220,
+            "temperature": 0,
+            "messages": [["role": "user", "content": prompt]]
+        ]
+
+        guard let bodyData = try? JSONSerialization.data(withJSONObject: body),
+              let url = URL(string: "https://api.anthropic.com/v1/messages") else { return nil }
+
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.timeoutInterval = 15
+        req.setValue(apiKey, forHTTPHeaderField: "x-api-key")
+        req.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = bodyData
+
+        guard let (data, resp) = try? await URLSession.shared.data(for: req),
+              (resp as? HTTPURLResponse)?.statusCode == 200,
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let content = (json["content"] as? [[String: Any]])?.first,
+              let text = content["text"] as? String else { return nil }
+
+        return parsedAnnotationPlan(text)
+    }
+
     private static func claudeSuggestTitle(prompt: String) async -> AIDisambiguationDecision? {
         guard let apiKey = envValue("ANTHROPIC_API_KEY"),
               !apiKey.isEmpty else { return nil }
@@ -623,6 +790,36 @@ enum Wikipedia {
         )
         log("  🤖 AI decision → annotate=\(cleanedDecision.shouldAnnotate) match_type=\(cleanedDecision.matchType ?? "none") confidence=\(String(format: "%.2f", cleanedDecision.confidence)) title=\(cleanedDecision.wikipediaTitle ?? "nil") reason=\(cleanedDecision.reason)")
         return cleanedDecision
+    }
+
+    private static func parsedAnnotationPlan(_ text: String?) -> AnnotationPlan? {
+        guard let text,
+              let jsonData = extractJSONObject(from: text)?.data(using: .utf8) else { return nil }
+        let decoder = JSONDecoder()
+        guard let plan = try? decoder.decode(AnnotationPlan.self, from: jsonData) else { return nil }
+
+        let annotationType = plan.annotationType.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard ["wikipedia", "gloss", "suppress"].contains(annotationType) else { return nil }
+        guard plan.confidence >= 0, plan.confidence <= 1 else { return nil }
+        guard !plan.reason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+
+        if annotationType == "wikipedia" {
+            guard let title = plan.wikipediaTitle?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !title.isEmpty else { return nil }
+        }
+        if annotationType == "gloss" {
+            guard let gloss = plan.gloss?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !gloss.isEmpty else { return nil }
+        }
+
+        return AnnotationPlan(
+            annotationType: annotationType,
+            confidence: plan.confidence,
+            wikipediaTitle: plan.wikipediaTitle?.trimmingCharacters(in: .whitespacesAndNewlines),
+            glossTitle: plan.glossTitle?.trimmingCharacters(in: .whitespacesAndNewlines),
+            gloss: plan.gloss?.trimmingCharacters(in: .whitespacesAndNewlines),
+            reason: plan.reason.trimmingCharacters(in: .whitespacesAndNewlines)
+        )
     }
 
     private static func extractJSONObject(from text: String) -> String? {
@@ -1570,6 +1767,19 @@ enum Wikipedia {
             score -= 0.70
         }
 
+        let requestedLooksSymbolicAnimalPhrase = reqWords.count >= 2
+            && requestedHasUppercase
+            && !reqWords.isDisjoint(with: ["white", "sacred", "holy"])
+            && (!titleWords.isDisjoint(with: ["cafe", "cafes", "restaurant", "restaurants", "brand",
+                                              "film", "movie", "novel", "series", "show", "album"])
+                || loweredSummary.contains(" is a film")
+                || loweredSummary.contains(" is a novel")
+                || loweredSummary.contains(" is a television")
+                || loweredSummary.contains(" is the name of"))
+        if requestedLooksSymbolicAnimalPhrase {
+            score -= 0.90
+        }
+
         if reqWords.count >= 3,
            (!organizationWords.isDisjoint(with: titleWords) || !organizationWords.isDisjoint(with: summaryWords)),
            contextSummaryOverlap.isEmpty {
@@ -1814,6 +2024,14 @@ enum Wikipedia {
             return first.isUppercase
         }
         return titleCaseLike
+    }
+
+    private static func isHighRiskLoosePhraseForSearch(_ requested: String) -> Bool {
+        let words = normalize(requested).split(separator: " ").map(String.init)
+        guard words.count == 2 else { return false }
+        let symbolicAdjectives: Set<String> = ["white", "black", "red", "blue", "holy", "sacred"]
+        let animalWords: Set<String> = ["dog", "horse", "bull", "elephant", "hound", "steed", "whale"]
+        return symbolicAdjectives.contains(words[0]) && animalWords.contains(words[1])
     }
 
     private static let honorificLeadWords: Set<String> = [

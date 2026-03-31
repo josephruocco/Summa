@@ -616,7 +616,7 @@ enum Wikipedia {
         let model = envValue("OPENAI_MODEL") ?? "gpt-5.4-mini"
         let body: [String: Any] = [
             "model": model,
-            "reasoning": ["effort": "minimal"],
+            "reasoning": ["effort": "low"],
             "max_output_tokens": 180,
             "input": [[
                 "role": "user",
@@ -654,7 +654,7 @@ enum Wikipedia {
         let model = envValue("OPENAI_MODEL") ?? "gpt-5.4-mini"
         let body: [String: Any] = [
             "model": model,
-            "reasoning": ["effort": "minimal"],
+            "reasoning": ["effort": "low"],
             "max_output_tokens": 220,
             "input": [[
                 "role": "user",

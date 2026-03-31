@@ -63,6 +63,22 @@ enum Wikipedia {
             return WikiResult(status: .error, requested: term, title: nil, extract: "No term.", pageURL: nil, thumbnailURL: nil, debug: nil, score: nil)
         }
 
+        if looksLikeStandaloneHeading(requested, contextBefore: contextBefore, contextAfter: contextAfter) {
+            if trace {
+                log("  🔎 TRACE suppressed as chapter heading: \"\(requested)\"")
+            }
+            return WikiResult(
+                status: .suppressed,
+                requested: requested,
+                title: nil,
+                extract: "Chapter heading / thematic phrase.",
+                pageURL: nil,
+                thumbnailURL: nil,
+                debug: "standalone heading / thematic phrase",
+                score: nil
+            )
+        }
+
         guard looksQueryable(requested) else {
             return WikiResult(
                 status: .notFound,
@@ -1199,6 +1215,7 @@ enum Wikipedia {
             .filter { !$0.isEmpty }
 
         guard words.count >= 3 else { return [cleaned] }
+        let startsWithHonorific = honorificLeadWords.contains(words.first?.lowercased() ?? "")
 
         var seen = Set<String>()
         var queries: [String] = []
@@ -1210,11 +1227,19 @@ enum Wikipedia {
         }
 
         add(cleaned)
-        add(singularize(cleaned))
+        if !startsWithHonorific {
+            add(singularize(cleaned))
+        }
 
         let tail2 = words.suffix(2).joined(separator: " ")
-        add(tail2)
-        add(singularize(tail2))
+        let tail2Words = tail2.split(separator: " ").map(String.init)
+        let tail2MeaningfulCount = tail2Words.filter { !phraseConnectors.contains($0.lowercased()) }.count
+        if tail2MeaningfulCount >= 2,
+           let firstTail = tail2Words.first,
+           !phraseConnectors.contains(firstTail.lowercased()) {
+            add(tail2)
+            add(singularize(tail2))
+        }
 
         let meaningful = words.filter { !phraseConnectors.contains($0.lowercased()) }
         if meaningful.count >= 2 {
@@ -1521,6 +1546,11 @@ enum Wikipedia {
         let sportsWords: Set<String> = ["baseball", "basketball", "football", "club", "team", "league", "season", "player"]
         let biographyWords: Set<String> = ["actor", "actress", "politician", "rapper", "singer", "footballer", "cricketer", "minister", "coach", "player", "born"]
         let literaryRoleWords: Set<String> = ["poet", "writer", "author", "novelist", "philosopher", "critic", "theologian", "historian"]
+        let commercialWords: Set<String> = ["bank", "banks", "cafe", "cafes", "restaurant", "restaurants",
+                                            "company", "companies", "corporation", "brand", "franchise",
+                                            "chain", "holding", "holdings", "multinational", "investment"]
+        let organizationWords: Set<String> = ["order", "association", "society", "organization",
+                                              "fraternal", "lodge", "club", "brotherhood"]
 
         if requestedHasUppercase,
            reqWords.count == 1,
@@ -1533,6 +1563,17 @@ enum Wikipedia {
 
         if !sportsWords.isDisjoint(with: summaryWords), contextSummaryOverlap.isEmpty {
             score -= 0.40
+        }
+
+        if (!commercialWords.isDisjoint(with: titleWords) || !commercialWords.isDisjoint(with: summaryWords))
+            && contextSummaryOverlap.isEmpty {
+            score -= 0.70
+        }
+
+        if reqWords.count >= 3,
+           (!organizationWords.isDisjoint(with: titleWords) || !organizationWords.isDisjoint(with: summaryWords)),
+           contextSummaryOverlap.isEmpty {
+            score -= 0.45
         }
 
         if requestedHasUppercase,
@@ -1748,6 +1789,37 @@ enum Wikipedia {
         )
         return tracePhrases.contains(normalize(requested))
     }
+
+    private static func looksLikeStandaloneHeading(
+        _ requested: String,
+        contextBefore: String?,
+        contextAfter: String?
+    ) -> Bool {
+        let trimmedBefore = contextBefore?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let trimmedAfter = contextAfter?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let words = requested
+            .split(separator: " ")
+            .map { $0.trimmingCharacters(in: .punctuationCharacters) }
+            .filter { !$0.isEmpty }
+
+        guard trimmedBefore.isEmpty,
+              !trimmedAfter.isEmpty,
+              words.count >= 3,
+              words.count <= 8 else { return false }
+
+        let connectors: Set<String> = ["of", "the", "and", "a", "an", "to", "in"]
+        let titleCaseLike = words.allSatisfy { word in
+            if connectors.contains(word.lowercased()) { return true }
+            guard let first = word.first else { return false }
+            return first.isUppercase
+        }
+        return titleCaseLike
+    }
+
+    private static let honorificLeadWords: Set<String> = [
+        "lord", "lady", "king", "queen", "duke", "prince", "princess",
+        "emperor", "empress", "saint", "st"
+    ]
 
     // Extracts the parenthetical disambiguator from a title, e.g. "Mercury (planet)" → "planet".
     private static func extractParenthetical(_ s: String) -> String? {

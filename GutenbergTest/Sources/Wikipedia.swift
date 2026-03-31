@@ -292,7 +292,7 @@ enum Wikipedia {
         // enough to warrant a cross-check against the book's context.
         let shouldTryAI = allBaseNotFound || bestDirectScore < 0.90 || (bestPhraseScore > 0 && bestPhraseScore < 0.80)
         if shouldTryAI, let bookCtx = bookContext {
-            let aiSuggested = await claudeSuggestTitle(
+            let aiSuggested = await aiSuggestTitle(
                 phrase: requested,
                 contextBefore: contextBefore,
                 contextAfter: contextAfter,
@@ -349,15 +349,12 @@ enum Wikipedia {
         )
     }
 
-    private static func claudeSuggestTitle(
+    private static func aiSuggestTitle(
         phrase: String,
         contextBefore: String?,
         contextAfter: String?,
         bookContext: String
     ) async -> String? {
-        guard let apiKey = envValue("ANTHROPIC_API_KEY"),
-              !apiKey.isEmpty else { return nil }
-
         let contextSnippet = [contextBefore, contextAfter]
             .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
@@ -365,16 +362,34 @@ enum Wikipedia {
         let truncatedContext = contextSnippet.count > 400
             ? String(contextSnippet.prefix(400)) + "…"
             : contextSnippet
+        let targetSentence = [contextBefore?.trimmingCharacters(in: .whitespacesAndNewlines),
+                              "[[\(phrase)]]",
+                              contextAfter?.trimmingCharacters(in: .whitespacesAndNewlines)]
+            .compactMap { $0 }
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+        let truncatedSentence = targetSentence.count > 700
+            ? String(targetSentence.prefix(700)) + "…"
+            : targetSentence
+        let bookParts = bookContext.components(separatedBy: " — ")
+        let chapterLabel = bookParts.first ?? bookContext
+        let authorLabel = bookParts.count > 1 ? bookParts.last! : "Unknown"
 
         let prompt = """
         You are annotating a literary text with Wikipedia references.
 
-        Book: \(bookContext)
-        Phrase: "\(phrase)"
-        Context: "…\(truncatedContext)…"
+        Book / chapter: \(chapterLabel)
+        Author: \(authorLabel)
+        Target phrase: "\(phrase)"
+        Target sentence: "\(truncatedSentence)"
+        Nearby context: "…\(truncatedContext)…"
 
-        What Wikipedia article title does THIS SPECIFIC PHRASE most likely refer to?
-        IMPORTANT: annotate the phrase itself, not other entities mentioned nearby in the context.
+        Task: identify the single best Wikipedia article for THIS SPECIFIC PHRASE as used in THIS PASSAGE.
+        IMPORTANT:
+        - Resolve the phrase itself, not the overall theme of the chapter.
+        - Prefer "none" over a loose thematic or metaphorical association.
+        - If the phrase is a heading, epithet, descriptive phrase, adjective, or culture-bound expression without a clear standalone encyclopedia target, reply "none".
+        - Do not jump to a modern film, restaurant, company, song, or product unless the sentence clearly supports that sense.
         Examples:
           "Venetians" in an art context → "Venetian painting"
           "Romish" → "Catholic Church"
@@ -388,14 +403,75 @@ enum Wikipedia {
         - It is a common word or expression (e.g. goodbye, unconsciously, well)
         - It is a minor fictional character with no dedicated Wikipedia article (e.g. Lady Lucas, Mr Morris, Lizzy Bennet)
         - It is a pronoun, adverb, or generic descriptor
+        - It is a chapter heading or thematic phrase like "Whiteness of the Whale"
+        - The phrase only loosely suggests a concept but does not itself name a stable article
         - You are not confident there is a specific Wikipedia article for it
         NOTE: Major fictional characters DO have Wikipedia articles and should be annotated (e.g. "Mr Heathcliff" → "Heathcliff (Wuthering Heights)", "Ahab" → "Ahab", "Dorian Gray" → "The Picture of Dorian Gray").
         For religious titles like "Holy One", "Heavenly Father", reply with the primary Wikipedia article (e.g. "God in Christianity").
         Do NOT reply with an explanation or sentence — only the article title or "none".
         """
 
+        let debugPhrases = Set(
+            (envValue("SUMMA_DEBUG_AI_PROMPTS") ?? "")
+                .split(separator: ",")
+                .map { normalize(String($0)) }
+                .filter { !$0.isEmpty }
+        )
+        if debugPhrases.contains(normalize(phrase)) {
+            log("  🤖 PROMPT FOR \"\(phrase)\":\n\(prompt)\n")
+        }
+
+        if let suggestion = await openAISuggestTitle(prompt: prompt) {
+            return suggestion
+        }
+
+        return await claudeSuggestTitle(prompt: prompt)
+    }
+
+    private static func openAISuggestTitle(prompt: String) async -> String? {
+        guard let apiKey = envValue("OPENAI_API_KEY"),
+              !apiKey.isEmpty else { return nil }
+
+        let model = envValue("OPENAI_MODEL") ?? "gpt-5.4-mini"
         let body: [String: Any] = [
-            "model": "claude-haiku-4-5",
+            "model": model,
+            "reasoning": ["effort": "minimal"],
+            "max_output_tokens": 60,
+            "input": [[
+                "role": "user",
+                "content": [[
+                    "type": "input_text",
+                    "text": prompt
+                ]]
+            ]]
+        ]
+
+        guard let bodyData = try? JSONSerialization.data(withJSONObject: body),
+              let url = URL(string: "https://api.openai.com/v1/responses") else { return nil }
+
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.timeoutInterval = 15
+        req.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = bodyData
+
+        guard let (data, resp) = try? await URLSession.shared.data(for: req),
+              (resp as? HTTPURLResponse)?.statusCode == 200,
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return nil
+        }
+
+        let text = responseText(from: json)
+        return cleanedAISuggestion(text)
+    }
+
+    private static func claudeSuggestTitle(prompt: String) async -> String? {
+        guard let apiKey = envValue("ANTHROPIC_API_KEY"),
+              !apiKey.isEmpty else { return nil }
+
+        let body: [String: Any] = [
+            "model": "claude-sonnet-4-6",
             "max_tokens": 60,
             "temperature": 0,
             "messages": [["role": "user", "content": prompt]]
@@ -418,12 +494,38 @@ enum Wikipedia {
               let content = (json["content"] as? [[String: Any]])?.first,
               let text = content["text"] as? String else { return nil }
 
+        return cleanedAISuggestion(text)
+    }
+
+    private static func responseText(from json: [String: Any]) -> String? {
+        if let outputText = json["output_text"] as? String, !outputText.isEmpty {
+            return outputText
+        }
+
+        if let output = json["output"] as? [[String: Any]] {
+            for item in output {
+                if let content = item["content"] as? [[String: Any]] {
+                    for part in content {
+                        if let text = part["text"] as? String, !text.isEmpty {
+                            return text
+                        }
+                    }
+                }
+            }
+        }
+
+        return nil
+    }
+
+    private static func cleanedAISuggestion(_ text: String?) -> String? {
+        guard let text else { return nil }
+
         let suggestion = text.trimmingCharacters(in: .whitespacesAndNewlines)
             .trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
         guard !suggestion.isEmpty,
               suggestion.lowercased() != "none",
               suggestion.lowercased() != "\"none\"" else { return nil }
-        // Reject sentence-style responses (model explaining instead of answering)
+
         let wordCount = suggestion.split(separator: " ").count
         let looksLikeSentence = wordCount > 10
             || suggestion.hasPrefix("I ")
@@ -432,7 +534,7 @@ enum Wikipedia {
             || suggestion.contains("I need")
         guard !looksLikeSentence else { return nil }
 
-        log("  🤖 AI suggested: \"\(phrase)\" → \(suggestion)")
+        log("  🤖 AI suggested → \(suggestion)")
         return suggestion
     }
 

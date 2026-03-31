@@ -1,0 +1,94 @@
+[
+  {
+    "bookId": 8387,
+    "phrase": "Kant's",
+    "annotation_type": "wikipedia",
+    "expected": "Immanuel Kant",
+    "_reason": "Direct philosophical reference."
+  },
+  {
+    "bookId": 8387,
+    "phrase": "Renan",
+    "annotation_type": "wikipedia",
+    "expected": "Ernest Renan",
+    "_reason": "Named intellectual figure."
+  },
+  {
+    "bookId": 8387,
+    "phrase": "St Olav's",
+    "annotation_type": "wikipedia",
+    "expected": "St. Olav's shrine",
+    "_reason": "Historical-religious site with a stable target."
+  },
+  {
+    "bookId": 8387,
+    "phrase": "Ylajali",
+    "annotation_type": "suppress",
+    "_reason": "Invented/private name in the narrator's imagination, not a stable external referent."
+  },
+  {
+    "bookId": 8387,
+    "phrase": "Morgenbladet",
+    "annotation_type": "wikipedia",
+    "expected": "Morgenbladet",
+    "_reason": "Named newspaper."
+  },
+  {
+    "bookId": 8387,
+    "phrase": "South America",
+    "annotation_type": "wikipedia",
+    "expected": "South America",
+    "_reason": "Direct geographic referent."
+  },
+  {
+    "bookId": 8387,
+    "phrase": "Christiania",
+    "annotation_type": "wikipedia",
+    "expected": "Oslo",
+    "_reason": "Historical place name for Oslo."
+  },
+  {
+    "bookId": 8387,
+    "phrase": "Fabian Olsens",
+    "annotation_type": "suppress",
+    "_reason": "Context does not justify a stable external reference."
+  },
+  {
+    "bookId": 8387,
+    "phrase": "Good-bye",
+    "annotation_type": "suppress",
+    "_reason": "Ordinary expression, not an annotation target."
+  },
+  {
+    "bookId": 8387,
+    "phrase": "Castle Hill",
+    "annotation_type": "wikipedia",
+    "expected": "Akershus Fortress",
+    "_reason": "Historical local place reference in Christiania/Oslo."
+  },
+  {
+    "bookId": 8387,
+    "phrase": "Crimes of Futurity",
+    "annotation_type": "suppress",
+    "_reason": "Collision-prone phrase, not a stable contextual reference here."
+  },
+  {
+    "bookId": 8387,
+    "phrase": "Outside No",
+    "annotation_type": "suppress",
+    "_reason": "Mangled OCR-like fragment, not a real reference."
+  },
+  {
+    "bookId": 8387,
+    "phrase": "Bookseller Pascha",
+    "annotation_type": "suppress",
+    "_reason": "Too generic / unstable as an encyclopedic referent."
+  },
+  {
+    "bookId": 8387,
+    "phrase": "Carl Johann Street",
+    "annotation_type": "wikipedia",
+    "expected": "Karl Johans gate",
+    "_reason": "Historical street reference in Christiania/Oslo."
+  }
+]

@@ -1,0 +1,39 @@
+[
+  {
+    "_comment": "Heart of Darkness (ID 526)",
+    "bookId": 526,
+    "phrase": "Sir Francis Drake",
+    "expected": "Francis Drake",
+    "verdict": "ok"
+  },
+  {
+    "bookId": 526,
+    "phrase": "Sir John Franklin",
+    "expected": "John Franklin",
+    "verdict": "ok"
+  },
+  {
+    "bookId": 526,
+    "phrase": "Golden Hind",
+    "expected": "Golden Hind",
+    "verdict": "ok"
+  },
+  {
+    "bookId": 526,
+    "phrase": "Gravesend",
+    "expected": "Gravesend",
+    "verdict": "ok"
+  },
+  {
+    "bookId": 526,
+    "phrase": "Gauls",
+    "expected": "Gauls",
+    "verdict": "ok"
+  },
+  {
+    "bookId": 526,
+    "phrase": "Falernian",
+    "expected": "Falernian wine",
+    "verdict": "ok"
+  }
+]

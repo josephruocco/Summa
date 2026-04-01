@@ -19,11 +19,87 @@ struct WikiResult: Codable, Sendable, Hashable {
     var score: Double?
 }
 
+struct AIDisambiguationDecision: Codable, Sendable {
+    var shouldAnnotate: Bool
+    var matchType: String?
+    var wikipediaTitle: String?
+    var confidence: Double
+    var reason: String
+
+    enum CodingKeys: String, CodingKey {
+        case shouldAnnotate = "should_annotate"
+        case matchType = "match_type"
+        case wikipediaTitle = "wikipedia_title"
+        case confidence
+        case reason
+    }
+}
+
+struct AnnotationPlan: Codable, Sendable {
+    var annotationType: String
+    var confidence: Double
+    var wikipediaTitle: String?
+    var glossTitle: String?
+    var gloss: String?
+    var reason: String
+
+    enum CodingKeys: String, CodingKey {
+        case annotationType = "annotation_type"
+        case confidence
+        case wikipediaTitle = "wikipedia_title"
+        case glossTitle = "gloss_title"
+        case gloss
+        case reason
+    }
+}
+
 enum Wikipedia {
     // In-memory negative cache: terms confirmed to have no Wikipedia article are skipped
     // on subsequent page scans without re-querying. Keyed on normalized term.
     private nonisolated(unsafe) static var notFoundCache: Set<String> = []
     private nonisolated(unsafe) static var envCache: [String: String]? = nil
+
+    // MARK: - Brave Search disk cache
+    // Caches Brave API responses to disk so repeated pipeline runs don't re-query.
+    // Cache entries expire after 7 days. Stored as JSON at ~/.cache/summa/brave_cache.json
+
+    private struct BraveCacheEntry: Codable {
+        let candidates: [CachedCandidate]
+        let timestamp: Double  // Unix epoch seconds
+    }
+    private struct CachedCandidate: Codable {
+        let title: String
+        let snippet: String
+    }
+
+    private nonisolated(unsafe) static var braveCache: [String: BraveCacheEntry] = {
+        loadBraveCache()
+    }()
+    private nonisolated(unsafe) static var braveCacheDirty = false
+
+    private static var braveCachePath: String {
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        return "\(home)/.cache/summa/brave_cache.json"
+    }
+
+    private static func loadBraveCache() -> [String: BraveCacheEntry] {
+        guard let data = FileManager.default.contents(atPath: braveCachePath),
+              let dict = try? JSONDecoder().decode([String: BraveCacheEntry].self, from: data)
+        else { return [:] }
+        // Prune entries older than 7 days
+        let cutoff = Date().timeIntervalSince1970 - 7 * 24 * 3600
+        return dict.filter { $0.value.timestamp > cutoff }
+    }
+
+    static func saveBraveCacheIfNeeded() {
+        guard braveCacheDirty else { return }
+        let dir = (braveCachePath as NSString).deletingLastPathComponent
+        try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        if let data = try? JSONEncoder().encode(braveCache) {
+            FileManager.default.createFile(atPath: braveCachePath, contents: data)
+        }
+        braveCacheDirty = false
+    }
 
     static func summary(_ term: String) async -> String {
         let result = await lookup(term)
@@ -35,15 +111,136 @@ enum Wikipedia {
         }
     }
 
+    static func planAnnotation(
+        _ term: String,
+        contextBefore: String? = nil,
+        contextAfter: String? = nil,
+        bookContext: String? = nil,
+        literaryNote: String? = nil
+    ) async -> AnnotationPlan? {
+        let requested = term.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !requested.isEmpty, let bookContext else { return nil }
+
+        let contextSnippet = [contextBefore, contextAfter]
+            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .joined(separator: " … ")
+        let truncatedContext = contextSnippet.count > 400
+            ? String(contextSnippet.prefix(400)) + "…"
+            : contextSnippet
+        let targetSentence = [contextBefore?.trimmingCharacters(in: .whitespacesAndNewlines),
+                              "[[\(requested)]]",
+                              contextAfter?.trimmingCharacters(in: .whitespacesAndNewlines)]
+            .compactMap { $0 }
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+        let truncatedSentence = targetSentence.count > 700
+            ? String(targetSentence.prefix(700)) + "…"
+            : targetSentence
+        let bookParts = bookContext.components(separatedBy: " — ")
+        let chapterLabel = bookParts.first ?? bookContext
+        let authorLabel = bookParts.count > 1 ? bookParts.last! : "Unknown"
+
+        let noteClause = literaryNote.map { "\n        Style: \($0)" } ?? ""
+        let prompt = """
+        You are classifying candidate annotations in a literary text.
+
+        Book / chapter: \(chapterLabel)
+        Author: \(authorLabel)\(noteClause)
+        Target phrase: "\(requested)"
+        Target sentence: "\(truncatedSentence)"
+        Nearby context: "…\(truncatedContext)…"
+
+        Return a JSON object with exactly these fields:
+        {
+          "annotation_type": "wikipedia",
+          "confidence": 0.0,
+          "wikipedia_title": "Exact article title or null",
+          "gloss_title": "Short gloss title or null",
+          "gloss": "Brief explanatory note or null",
+          "reason": "brief reason"
+        }
+
+        Annotation types:
+        - wikipedia: use only for true linkable references with a stable encyclopedic target
+        - gloss: use for meaningful literary, ritual, adjectival, cultural, or historical references where a short note is better than a brittle title match
+        - suppress: use for headings, thematic phrases, generic descriptors, loose symbolism, and weak collision-prone candidates
+
+        Rules:
+        - Wikipedia resolution should be chosen whenever there is a stable, unambiguous encyclopedic article for the referent.
+        - If a word or phrase has a clear, well-known Wikipedia article, prefer wikipedia over gloss even if the form is adjectival or archaic.
+        - Prefer gloss only when the passage clearly means something important but the phrase itself does not stably name one safe Wikipedia target.
+        - Prefer suppress over weak or collision-prone wikipedia matches, and for chapter headings, thematic labels, and invented fictional words.
+        - Royal epithets and archaic multi-word symbolic labels usually belong in gloss unless the phrase itself is a stable canonical article title.
+        - Never suggest a wikipedia_title that ends in "nationalism", "separatism", "irredentism", or "independence movement" unless the passage explicitly discusses a political movement. Use the underlying cultural/ethnic/artistic article instead.
+        - Common expressions like "Thank God", "Good Lord", "My God" should be suppressed — they are exclamations, not references.
+        - Sentence fragments starting with "Where", "When", "How" that contain a geographic or common noun are usually not proper references — suppress them unless the noun itself is clearly the intended referent.
+        - Minor fictional characters ("Mr Morris", "Mrs Reed") who do not have their own Wikipedia article should be suppressed.
+
+        Examples:
+        - "Great Jove" -> wikipedia / "Jupiter (god)"
+        - "Romish" -> wikipedia / "Catholic Church"
+        - "Holy One" in a Christian context -> wikipedia / "God in Christianity"
+        - "Albino" -> wikipedia / "Albinism"
+        - "Polacks" -> wikipedia / "Polish people"
+        - "Venetians" in an artistic or cultural context -> wikipedia / "Venetian painting" (not "Venetian nationalism")
+        - "Southern Seas" -> wikipedia / "Southern Ocean"
+        - "Cæsarian" -> gloss  (adjectival imperial epithet, no single stable article)
+        - "White Dog" in an Iroquois ritual context -> gloss
+        - "Whiteness of the Whale" -> suppress
+        - "Thank God" -> suppress  (common expression, not a reference)
+        - "Where the Northern Ocean" -> suppress  (sentence fragment, not a proper noun)
+        - "Mr Morris" -> suppress  (generic character name in the novel, not an encyclopedic subject)
+
+        Constraints:
+        - Set confidence >= 0.90 only when you are highly confident.
+        - For gloss, provide a short explanatory note.
+        - Return only the JSON object.
+        """
+
+        // Try OpenAI first, then Claude fallback. Retry once if both fail (API hiccups).
+        for attempt in 1...2 {
+            if let plan = await openAIAnnotationPlan(prompt: prompt, requested: requested) {
+                return normalizeAnnotationPlan(plan, requested: requested)
+            }
+            if let plan = await claudeAnnotationPlan(prompt: prompt, requested: requested) {
+                return normalizeAnnotationPlan(plan, requested: requested)
+            }
+            if attempt == 1 {
+                try? await Task.sleep(nanoseconds: 500_000_000) // 0.5s before retry
+            }
+        }
+        return nil
+    }
+
     static func lookup(
         _ term: String,
         contextBefore: String? = nil,
         contextAfter: String? = nil,
-        bookContext: String? = nil
+        bookContext: String? = nil,
+        preApprovedTitle: String? = nil,
+        planSaysWikipedia: Bool = false
     ) async -> WikiResult {
         let requested = term.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trace = shouldTraceLookup(requested)
         guard !requested.isEmpty else {
             return WikiResult(status: .error, requested: term, title: nil, extract: "No term.", pageURL: nil, thumbnailURL: nil, debug: nil, score: nil)
+        }
+
+        if looksLikeStandaloneHeading(requested, contextBefore: contextBefore, contextAfter: contextAfter) {
+            if trace {
+                log("  🔎 TRACE suppressed as chapter heading: \"\(requested)\"")
+            }
+            return WikiResult(
+                status: .suppressed,
+                requested: requested,
+                title: nil,
+                extract: "Chapter heading / thematic phrase.",
+                pageURL: nil,
+                thumbnailURL: nil,
+                debug: "standalone heading / thematic phrase",
+                score: nil
+            )
         }
 
         guard looksQueryable(requested) else {
@@ -73,6 +270,9 @@ enum Wikipedia {
 
         for query in retryQueries(for: requested) {
             if let direct = await fetchSummary(title: query) {
+                if trace {
+                    log("  🔎 TRACE direct query=\"\(query)\" status=\(direct.status.rawValue) title=\(direct.title ?? "nil")")
+                }
                 if direct.status != .notFound { allBaseNotFound = false }
 
                 let directScore = direct.status == .ok ? scoreCandidate(
@@ -116,6 +316,9 @@ enum Wikipedia {
 
                 if !suspiciousDirect,
                    let accepted = verify(result: direct, requested: requested, contextBefore: contextBefore, contextAfter: contextAfter) {
+                    if trace {
+                        log("  🔎 TRACE accepted direct title=\(accepted.title ?? "nil") score=\(String(format: "%.2f", accepted.score ?? 0))")
+                    }
                     // Very high confidence → return immediately; uncertain → fall through to AI
                     if let s = accepted.score, s >= 0.90 {
                         return accepted
@@ -130,6 +333,9 @@ enum Wikipedia {
                     hitDisambiguation = true
                     let searchTerm = contextAugmentedQuery(query, contextBefore: contextBefore, contextAfter: contextAfter) ?? query
                     let resolved = await resolveViaSearch(searchTerm, requested: requested, contextBefore: contextBefore, contextAfter: contextAfter)
+                    if trace, let resolved {
+                        log("  🔎 TRACE disamb-search term=\"\(searchTerm)\" status=\(resolved.status.rawValue) title=\(resolved.title ?? "nil") score=\(String(format: "%.2f", resolved.score ?? 0))")
+                    }
                     if let resolved, let accepted = verify(result: resolved, requested: requested, contextBefore: contextBefore, contextAfter: contextAfter) {
                         // High-confidence disambiguation result: return immediately.
                         // Uncertain result: store as candidate and fall through to AI.
@@ -182,6 +388,7 @@ enum Wikipedia {
         // Also covers 2-word abbreviated forms like "St Olav's" → Saint Olaf.
         let looksLikeMeaningfulPhrase = requested.contains(" ")
             && requested.split(separator: " ").count >= 2
+            && !isHighRiskLoosePhraseForSearch(requested)
         // Also run phrase search when Wikipedia found something but scored it essentially 0
         // (e.g. "St Olav's" → Wikipedia returns "Olaf II of Norway" with no word overlap →
         // clamped score 0.0, never flagged as suspicious since containsRequest fails).
@@ -190,6 +397,9 @@ enum Wikipedia {
         if effectivelyNotFound && looksLikeMeaningfulPhrase {
             for query in phraseSearchQueries(for: requested) {
                 if let resolved = await resolveViaSearch(query, requested: query, contextBefore: contextBefore, contextAfter: contextAfter) {
+                    if trace {
+                        log("  🔎 TRACE phrase-search query=\"\(query)\" status=\(resolved.status.rawValue) title=\(resolved.title ?? "nil") score=\(String(format: "%.2f", resolved.score ?? 0))")
+                    }
                     if resolved.status == .ok, let s = resolved.score {
                         bestPhraseScore = max(bestPhraseScore, s)
                         // High-confidence results return immediately; uncertain ones fall through to AI
@@ -252,6 +462,9 @@ enum Wikipedia {
                     : (contextAugmentedQuery(requested, contextBefore: contextBefore, contextAfter: contextAfter) ?? requested)
             }
             if let resolved = await resolveViaSearch(searchTerm, requested: requested, contextBefore: contextBefore, contextAfter: contextAfter) {
+                if trace {
+                    log("  🔎 TRACE fallback-search term=\"\(searchTerm)\" status=\(resolved.status.rawValue) title=\(resolved.title ?? "nil") score=\(String(format: "%.2f", resolved.score ?? 0))")
+                }
                 // resolveViaSearch scores candidates using the search result title (e.g. "Christiania"),
                 // but stores the fetched summary result whose title may be the redirect target (e.g. "Oslo").
                 // Re-running verify() here would re-score against the redirect title and fail. Trust the
@@ -292,27 +505,80 @@ enum Wikipedia {
         // enough to warrant a cross-check against the book's context.
         let shouldTryAI = allBaseNotFound || bestDirectScore < 0.90 || (bestPhraseScore > 0 && bestPhraseScore < 0.80)
         if shouldTryAI, let bookCtx = bookContext {
-            let aiSuggested = await claudeSuggestTitle(
+            // If planAnnotation already identified the Wikipedia title, skip the second AI call.
+            // Guard: reject political-movement titles (e.g. "Venetian nationalism") that slipped through.
+            let politicalMovementSuffixes = ["nationalism", "separatism", "irredentism",
+                                             "independence movement", "autonomy movement"]
+            if let preTitle = preApprovedTitle, !preTitle.isEmpty,
+               !politicalMovementSuffixes.contains(where: { preTitle.lowercased().hasSuffix($0) }) {
+                if let direct = await fetchSummary(title: preTitle), direct.status == .ok {
+                    log("  🤖 Using pre-approved title: \"\(requested)\" → \(preTitle)")
+                    return WikiResult(
+                        status: .ok,
+                        requested: requested,
+                        title: direct.title,
+                        extract: direct.extract,
+                        pageURL: direct.pageURL,
+                        thumbnailURL: direct.thumbnailURL,
+                        debug: "pre-approved: \(preTitle)",
+                        score: max(0.95, direct.score ?? 0)
+                    )
+                }
+            }
+            // Plan-verified shortcut: if planAnnotation already classified this as "wikipedia"
+            // and the direct lookup found a plausible article (score >= 0.50), accept it.
+            // Two independent signals agree — no need for a second AI call.
+            if planSaysWikipedia, let best = bestSuppressedResult,
+               let bestScore = best.score, bestScore >= 0.50, best.title != nil {
+                log("  🤖 Plan-verified accept: \"\(requested)\" → \(best.title ?? "?") (plan=wikipedia, score=\(String(format: "%.2f", bestScore)))")
+                return WikiResult(
+                    status: .ok,
+                    requested: requested,
+                    title: best.title,
+                    extract: best.extract,
+                    pageURL: best.pageURL,
+                    thumbnailURL: best.thumbnailURL,
+                    debug: "plan-verified: \(best.title ?? "?")",
+                    score: max(0.85, bestScore)
+                )
+            }
+
+            let aiDecision = await aiSuggestTitle(
                 phrase: requested,
                 contextBefore: contextBefore,
                 contextAfter: contextAfter,
-                bookContext: bookCtx
+                bookContext: bookCtx,
+                candidateTitle: bestSuppressedResult?.title
             )
-            if let suggestedTitle = aiSuggested {
+            if let aiDecision,
+               aiDecision.shouldAnnotate,
+               aiDecision.confidence >= 0.90,
+               let suggestedTitle = aiDecision.wikipediaTitle,
+               !suggestedTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 // Try direct fetch first, then fall back to search if the exact title doesn't exist
                 let aiResult: WikiResult?
                 if let direct = await fetchSummary(title: suggestedTitle), direct.status == .ok {
                     aiResult = direct
                 } else {
-                    // AI's title may be slightly off ("Haymarket, Saint Petersburg" → search → "Sennaya Square")
-                    log("  🤖 AI fetch failed for \"\(requested)\" → \"\(suggestedTitle)\", trying search")
-                    if let searched = await resolveViaSearch(suggestedTitle, requested: requested,
-                                                             contextBefore: contextBefore,
-                                                             contextAfter: contextAfter),
-                       searched.status == .ok {
-                        aiResult = searched
+                    // AI's title may be slightly off or hit a disambiguation page.
+                    // Try appending the book title in parentheses: "Fortinbras" → "Fortinbras (Hamlet)"
+                    let bookTitle = bookCtx.components(separatedBy: " — ").first?
+                        .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                    let disambiguated = "\(suggestedTitle) (\(bookTitle))"
+                    if !bookTitle.isEmpty,
+                       let direct2 = await fetchSummary(title: disambiguated), direct2.status == .ok {
+                        log("  🤖 AI fetch disambiguated: \"\(requested)\" → \"\(disambiguated)\"")
+                        aiResult = direct2
                     } else {
-                        aiResult = nil
+                        log("  🤖 AI fetch failed for \"\(requested)\" → \"\(suggestedTitle)\", trying search")
+                        if let searched = await resolveViaSearch(suggestedTitle, requested: requested,
+                                                                 contextBefore: contextBefore,
+                                                                 contextAfter: contextAfter),
+                           searched.status == .ok {
+                            aiResult = searched
+                        } else {
+                            aiResult = nil
+                        }
                     }
                 }
                 if let aiResult {
@@ -323,16 +589,37 @@ enum Wikipedia {
                         extract: aiResult.extract,
                         pageURL: aiResult.pageURL,
                         thumbnailURL: aiResult.thumbnailURL,
-                        debug: "ai-suggested: \(suggestedTitle)",
-                        score: 0.75
+                        debug: "ai-suggested: \(suggestedTitle) | match_type=\(aiDecision.matchType ?? "unknown") | reason=\(aiDecision.reason)",
+                        score: max(aiDecision.confidence, aiResult.score ?? 0)
                     )
                 }
+            } else if aiDecision == nil, let best = bestSuppressedResult,
+                      let bestScore = best.score, bestScore >= 0.60, best.title != nil,
+                      titleIsRelated(requested: requested, candidateTitle: best.title ?? ""),
+                      normalize(best.title ?? "") != normalize(requested) {
+                // AI call failed (nil = API error, not a rejection). We have a plausible
+                // Wikipedia candidate whose title is related but DIFFERENT from the requested term
+                // (e.g., "Chrysostomos" → "John Chrysostom"). The title difference signals
+                // disambiguation already happened. Exact matches (e.g. "Kingstown" → "Kingstown")
+                // may be disambiguation collisions and need AI verification.
+                log("  🤖 AI call failed for \"\(requested)\" — accepting alias-matched candidate \(best.title ?? "?") at \(String(format: "%.2f", bestScore))")
+                return WikiResult(
+                    status: .ok,
+                    requested: requested,
+                    title: best.title,
+                    extract: best.extract,
+                    pageURL: best.pageURL,
+                    thumbnailURL: best.thumbnailURL,
+                    debug: "ai-fallback-accept: \(best.title ?? "?")",
+                    score: max(0.85, bestScore)
+                )
             } else if bestDirectScore < 0.90 {
-                // AI said "none" and the pipeline result was already uncertain.
-                // Suppress rather than surface a likely-wrong annotation.
-                log("  🤖 AI said none for \"\(requested)\" (score \(String(format: "%.2f", bestDirectScore))) — suppressing")
+                let aiReason = aiDecision?.reason ?? "AI determined: not a reference in this context"
+                let aiConfidence = aiDecision.map { String(format: "%.2f", $0.confidence) } ?? "n/a"
+                let aiMatchType = aiDecision?.matchType ?? "none"
+                log("  🤖 AI rejected \"\(requested)\" (confidence \(aiConfidence), match_type \(aiMatchType)) — suppressing")
                 if let bs = bestSuppressedResult {
-                    return suppress(result: bs, reason: "AI determined: not a reference in this context")
+                    return suppress(result: bs, reason: aiReason)
                 }
             }
         }
@@ -349,15 +636,13 @@ enum Wikipedia {
         )
     }
 
-    private static func claudeSuggestTitle(
+    private static func aiSuggestTitle(
         phrase: String,
         contextBefore: String?,
         contextAfter: String?,
-        bookContext: String
-    ) async -> String? {
-        guard let apiKey = envValue("ANTHROPIC_API_KEY"),
-              !apiKey.isEmpty else { return nil }
-
+        bookContext: String,
+        candidateTitle: String? = nil
+    ) async -> AIDisambiguationDecision? {
         let contextSnippet = [contextBefore, contextAfter]
             .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
@@ -365,38 +650,215 @@ enum Wikipedia {
         let truncatedContext = contextSnippet.count > 400
             ? String(contextSnippet.prefix(400)) + "…"
             : contextSnippet
+        let targetSentence = [contextBefore?.trimmingCharacters(in: .whitespacesAndNewlines),
+                              "[[\(phrase)]]",
+                              contextAfter?.trimmingCharacters(in: .whitespacesAndNewlines)]
+            .compactMap { $0 }
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+        let truncatedSentence = targetSentence.count > 700
+            ? String(targetSentence.prefix(700)) + "…"
+            : targetSentence
+        let bookParts = bookContext.components(separatedBy: " — ")
+        let chapterLabel = bookParts.first ?? bookContext
+        let authorLabel = bookParts.count > 1 ? bookParts.last! : "Unknown"
 
+        let candidateClause = candidateTitle.map { "\n        Wikipedia candidate: \"\($0)\" (found via direct lookup — verify whether this is the correct referent)" } ?? ""
         let prompt = """
         You are annotating a literary text with Wikipedia references.
 
-        Book: \(bookContext)
-        Phrase: "\(phrase)"
-        Context: "…\(truncatedContext)…"
+        Book / chapter: \(chapterLabel)
+        Author: \(authorLabel)
+        Target phrase: "\(phrase)"
+        Target sentence: "\(truncatedSentence)"
+        Nearby context: "…\(truncatedContext)…"\(candidateClause)
 
-        What Wikipedia article title does THIS SPECIFIC PHRASE most likely refer to?
-        IMPORTANT: annotate the phrase itself, not other entities mentioned nearby in the context.
-        Examples:
-          "Venetians" in an art context → "Venetian painting"
-          "Romish" → "Catholic Church"
-          "Great Jove" → "Jupiter (god)"
-          "Carl Johann Street" → "Karl Johans gate"
-          "Crates" in a philosophy context → "Crates of Thebes"
-          "Kingstown" in an Irish/Dublin context → "Dún Laoghaire"
-          "Thalatta" in a literary/classical context → "Anabasis (Xenophon)"
-        Reply with ONLY the exact Wikipedia article title.
-        Reply "none" if:
-        - It is a common word or expression (e.g. goodbye, unconsciously, well)
-        - It is a minor fictional character with no dedicated Wikipedia article (e.g. Lady Lucas, Mr Morris, Lizzy Bennet)
-        - It is a pronoun, adverb, or generic descriptor
-        - You are not confident there is a specific Wikipedia article for it
-        NOTE: Major fictional characters DO have Wikipedia articles and should be annotated (e.g. "Mr Heathcliff" → "Heathcliff (Wuthering Heights)", "Ahab" → "Ahab", "Dorian Gray" → "The Picture of Dorian Gray").
-        For religious titles like "Holy One", "Heavenly Father", reply with the primary Wikipedia article (e.g. "God in Christianity").
-        Do NOT reply with an explanation or sentence — only the article title or "none".
+        Task: identify the single best Wikipedia article for THIS SPECIFIC PHRASE as used in THIS PASSAGE.
+        Return a JSON object with exactly these fields:
+        {
+          "should_annotate": true,
+          "match_type": "exact",
+          "wikipedia_title": "Exact article title",
+          "confidence": 0.0,
+          "reason": "brief reason"
+        }
+        Rules:
+        - Resolve the phrase as used in context, not by surface resemblance alone.
+        - Prefer the article for the exact referent intended by the passage.
+        - If the phrase is a descriptive title, epithet, honorific, poetic expression, or culture-bound wording, you may map it to the underlying real-world referent only when that referent is clearly and specifically intended.
+        - Do not annotate when the phrase is merely:
+          - a chapter heading
+          - a thematic phrase
+          - a generic descriptor
+          - a loose symbolic expression
+          - an adjective that does not stably denote one encyclopedic subject
+        - Reject modern title collisions. Do not choose an article just because its title overlaps the phrase.
+        - Reject commercial, organizational, entertainment, restaurant, product, or pop-culture matches unless the literary passage clearly means that exact thing.
+        - If multiple articles are plausible, choose "should_annotate": false unless one is clearly best.
+        - Be conservative. Prefer no annotation over a weak or merely plausible match.
+        Special disambiguation rules:
+        - For archaic ethnonyms or historical literary labels, map to the relevant people or civilization only if that is plainly what the passage means.
+        - For imperial, dynastic, religious, or mythological adjectives, annotate only if the adjective clearly points to one stable historical, political, or religious referent.
+        - For royal epithets built from animals, objects, or symbols, annotate the underlying animal, object, or symbol only if that is clearly the thing being invoked rather than the wording of the epithet itself.
+        - For headings and thematic labels, never annotate unless they directly name a standalone subject.
+        Negative examples:
+        - "Whiteness of the Whale" → no annotation
+        - "Red Men of America" → not a bank or fraternal order
+        - "White Dog" in a symbolic or literary passage → not a restaurant, film, or brand
+        - "Lord of the White Elephants" → do not choose a page only because "white elephant" appears in the phrase unless the animal or symbol is clearly the intended referent
+        - "Cæsarian" → do not map automatically to a dynasty, empire, or biography unless the context clearly identifies the exact referent
+        - "Venetians" in an artistic context → do not choose "Venetian nationalism"; choose "Venetian painting" or the relevant cultural article
+        - Never choose an article whose title ends in "nationalism", "separatism", or "irredentism" for a phrase that refers to a cultural group, art tradition, or ethnic people
+        Positive examples:
+        - "Great Jove" → "Jupiter (god)"
+        - "Romish" → "Catholic Church"
+        - "Holy One" in a Christian context → "God in Christianity"
+        - "Venetians" in a painting/art context → "Venetian painting"
+        - "Lord of the White Elephants" in a context explicitly invoking royal white elephants as sacred animals or symbols → "White elephant"
+        - "Red Men of America" in a context explicitly referring to Native peoples → "Indigenous peoples of the Americas"
+        Additional guardrails:
+        - If the candidate article is a modern company, bank, restaurant, film, TV show, album, or brand, reject it unless the passage explicitly indicates that modern sense.
+        - If the phrase appears in title case because it is a chapter heading, default to no annotation.
+        - If the phrase is a single adjective or adjectival form, annotate only when the modified noun or surrounding clause makes the referent unambiguous.
+        - Never return a wikipedia_title ending in "nationalism", "separatism", or "irredentism" for a cultural, artistic, or ethnic reference.
+        Decision standard:
+        - Set should_annotate = true only if confidence >= 0.90
+        - Set should_annotate = false for metaphorical, thematic, weak, or collision-prone matches
+        - match_type must be one of: "exact", "underlying_referent", "none"
+        - reason must be brief and mention the disambiguation basis
+        Return only the JSON object.
         """
 
+        let debugPhrases = Set(
+            (envValue("SUMMA_DEBUG_AI_PROMPTS") ?? "")
+                .split(separator: ",")
+                .map { normalize(String($0)) }
+                .filter { !$0.isEmpty }
+        )
+        if debugPhrases.contains(normalize(phrase)) {
+            log("  🤖 PROMPT FOR \"\(phrase)\":\n\(prompt)\n")
+        }
+
+        if let decision = await openAISuggestTitle(prompt: prompt) {
+            return decision
+        }
+
+        return await claudeSuggestTitle(prompt: prompt)
+    }
+
+    private static func openAISuggestTitle(prompt: String) async -> AIDisambiguationDecision? {
+        guard let apiKey = envValue("OPENAI_API_KEY"),
+              !apiKey.isEmpty else { return nil }
+
+        let model = envValue("OPENAI_MODEL") ?? "gpt-5.4-mini"
         let body: [String: Any] = [
-            "model": "claude-haiku-4-5",
-            "max_tokens": 60,
+            "model": model,
+            "reasoning": ["effort": "low"],
+            "max_output_tokens": 180,
+            "input": [[
+                "role": "user",
+                "content": [[
+                    "type": "input_text",
+                    "text": prompt
+                ]]
+            ]]
+        ]
+
+        guard let bodyData = try? JSONSerialization.data(withJSONObject: body),
+              let url = URL(string: "https://api.openai.com/v1/responses") else { return nil }
+
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.timeoutInterval = 15
+        req.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = bodyData
+
+        guard let (data, resp) = try? await URLSession.shared.data(for: req),
+              (resp as? HTTPURLResponse)?.statusCode == 200,
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return nil
+        }
+
+        let text = responseText(from: json)
+        return parsedAIDecision(text)
+    }
+
+    private static func openAIAnnotationPlan(prompt: String, requested: String) async -> AnnotationPlan? {
+        guard let apiKey = envValue("OPENAI_API_KEY"),
+              !apiKey.isEmpty else { return nil }
+
+        let model = envValue("OPENAI_MODEL") ?? "gpt-5.4-mini"
+        let body: [String: Any] = [
+            "model": model,
+            "reasoning": ["effort": "low"],
+            "max_output_tokens": 220,
+            "input": [[
+                "role": "user",
+                "content": [[
+                    "type": "input_text",
+                    "text": prompt
+                ]]
+            ]]
+        ]
+
+        guard let bodyData = try? JSONSerialization.data(withJSONObject: body),
+              let url = URL(string: "https://api.openai.com/v1/responses") else { return nil }
+
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.timeoutInterval = 20
+        req.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = bodyData
+
+        guard let (data, resp) = try? await URLSession.shared.data(for: req),
+              (resp as? HTTPURLResponse)?.statusCode == 200,
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return nil
+        }
+
+        return parsedAnnotationPlan(responseText(from: json), requested: requested)
+    }
+
+    private static func claudeAnnotationPlan(prompt: String, requested: String) async -> AnnotationPlan? {
+        guard let apiKey = envValue("ANTHROPIC_API_KEY"),
+              !apiKey.isEmpty else { return nil }
+
+        let body: [String: Any] = [
+            "model": "claude-sonnet-4-6",
+            "max_tokens": 220,
+            "temperature": 0,
+            "messages": [["role": "user", "content": prompt]]
+        ]
+
+        guard let bodyData = try? JSONSerialization.data(withJSONObject: body),
+              let url = URL(string: "https://api.anthropic.com/v1/messages") else { return nil }
+
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.timeoutInterval = 15
+        req.setValue(apiKey, forHTTPHeaderField: "x-api-key")
+        req.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = bodyData
+
+        guard let (data, resp) = try? await URLSession.shared.data(for: req),
+              (resp as? HTTPURLResponse)?.statusCode == 200,
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let content = (json["content"] as? [[String: Any]])?.first,
+              let text = content["text"] as? String else { return nil }
+
+        return parsedAnnotationPlan(text, requested: requested)
+    }
+
+    private static func claudeSuggestTitle(prompt: String) async -> AIDisambiguationDecision? {
+        guard let apiKey = envValue("ANTHROPIC_API_KEY"),
+              !apiKey.isEmpty else { return nil }
+
+        let body: [String: Any] = [
+            "model": "claude-sonnet-4-6",
+            "max_tokens": 180,
             "temperature": 0,
             "messages": [["role": "user", "content": prompt]]
         ]
@@ -418,22 +880,153 @@ enum Wikipedia {
               let content = (json["content"] as? [[String: Any]])?.first,
               let text = content["text"] as? String else { return nil }
 
-        let suggestion = text.trimmingCharacters(in: .whitespacesAndNewlines)
-            .trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
-        guard !suggestion.isEmpty,
-              suggestion.lowercased() != "none",
-              suggestion.lowercased() != "\"none\"" else { return nil }
-        // Reject sentence-style responses (model explaining instead of answering)
-        let wordCount = suggestion.split(separator: " ").count
-        let looksLikeSentence = wordCount > 10
-            || suggestion.hasPrefix("I ")
-            || suggestion.contains(". ")
-            || suggestion.contains("refers to")
-            || suggestion.contains("I need")
-        guard !looksLikeSentence else { return nil }
+        return parsedAIDecision(text)
+    }
 
-        log("  🤖 AI suggested: \"\(phrase)\" → \(suggestion)")
-        return suggestion
+    private static func responseText(from json: [String: Any]) -> String? {
+        if let outputText = json["output_text"] as? String, !outputText.isEmpty {
+            return outputText
+        }
+
+        if let output = json["output"] as? [[String: Any]] {
+            for item in output {
+                if let content = item["content"] as? [[String: Any]] {
+                    for part in content {
+                        if let text = part["text"] as? String, !text.isEmpty {
+                            return text
+                        }
+                    }
+                }
+            }
+        }
+
+        return nil
+    }
+
+    private static func parsedAIDecision(_ text: String?) -> AIDisambiguationDecision? {
+        guard let text else { return nil }
+        guard let jsonData = extractJSONObject(from: text)?.data(using: .utf8) else { return nil }
+        let decoder = JSONDecoder()
+        guard let decision = try? decoder.decode(AIDisambiguationDecision.self, from: jsonData) else { return nil }
+
+        let cleanedTitle = decision.wikipediaTitle?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedMatchType = (decision.matchType ?? (decision.shouldAnnotate ? "exact" : "none"))
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+
+        guard ["exact", "underlying_referent", "none"].contains(normalizedMatchType) else { return nil }
+        guard decision.confidence >= 0, decision.confidence <= 1 else { return nil }
+        guard !decision.reason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+
+        if decision.shouldAnnotate {
+            guard let cleanedTitle, !cleanedTitle.isEmpty, normalizedMatchType != "none" else { return nil }
+        }
+
+        let cleanedDecision = AIDisambiguationDecision(
+            shouldAnnotate: decision.shouldAnnotate,
+            matchType: normalizedMatchType,
+            wikipediaTitle: cleanedTitle?.isEmpty == true ? nil : cleanedTitle,
+            confidence: decision.confidence,
+            reason: decision.reason.trimmingCharacters(in: .whitespacesAndNewlines)
+        )
+        log("  🤖 AI decision → annotate=\(cleanedDecision.shouldAnnotate) match_type=\(cleanedDecision.matchType ?? "none") confidence=\(String(format: "%.2f", cleanedDecision.confidence)) title=\(cleanedDecision.wikipediaTitle ?? "nil") reason=\(cleanedDecision.reason)")
+        return cleanedDecision
+    }
+
+    private static func parsedAnnotationPlan(_ text: String?, requested: String) -> AnnotationPlan? {
+        guard let text,
+              let jsonData = extractJSONObject(from: text)?.data(using: .utf8) else { return nil }
+        let decoder = JSONDecoder()
+        guard let plan = try? decoder.decode(AnnotationPlan.self, from: jsonData) else { return nil }
+
+        let annotationType = plan.annotationType.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard ["wikipedia", "gloss", "suppress"].contains(annotationType) else { return nil }
+        guard plan.confidence >= 0, plan.confidence <= 1 else { return nil }
+        guard !plan.reason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+
+        if annotationType == "wikipedia" {
+            guard let title = plan.wikipediaTitle?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !title.isEmpty else { return nil }
+        }
+        if annotationType == "gloss" {
+            guard let gloss = plan.gloss?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !gloss.isEmpty else { return nil }
+        }
+
+        let adjustedType = adjustedAnnotationType(
+            requested: requested,
+            annotationType: annotationType,
+            wikipediaTitle: plan.wikipediaTitle
+        )
+
+        let glossText = plan.gloss?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let fallbackGloss = glossText ?? plan.reason.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        return AnnotationPlan(
+            annotationType: adjustedType,
+            confidence: plan.confidence,
+            wikipediaTitle: adjustedType == "wikipedia" ? plan.wikipediaTitle?.trimmingCharacters(in: .whitespacesAndNewlines) : nil,
+            glossTitle: plan.glossTitle?.trimmingCharacters(in: .whitespacesAndNewlines),
+            gloss: adjustedType == "gloss" ? fallbackGloss : glossText,
+            reason: plan.reason.trimmingCharacters(in: .whitespacesAndNewlines)
+        )
+    }
+
+    private static func normalizeAnnotationPlan(_ plan: AnnotationPlan, requested: String) -> AnnotationPlan {
+        let adjustedType = adjustedAnnotationType(
+            requested: requested,
+            annotationType: plan.annotationType,
+            wikipediaTitle: plan.wikipediaTitle
+        )
+
+        let glossText = plan.gloss?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let fallbackGloss = glossText ?? plan.reason.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        return AnnotationPlan(
+            annotationType: adjustedType,
+            confidence: plan.confidence,
+            wikipediaTitle: adjustedType == "wikipedia" ? plan.wikipediaTitle?.trimmingCharacters(in: .whitespacesAndNewlines) : nil,
+            glossTitle: plan.glossTitle?.trimmingCharacters(in: .whitespacesAndNewlines),
+            gloss: adjustedType == "gloss" ? fallbackGloss : glossText,
+            reason: plan.reason.trimmingCharacters(in: .whitespacesAndNewlines)
+        )
+    }
+
+    private static func adjustedAnnotationType(
+        requested: String,
+        annotationType: String,
+        wikipediaTitle: String?
+    ) -> String {
+        guard annotationType == "wikipedia" else { return annotationType }
+
+        let normalizedRequested = normalize(requested)
+        let normalizedTitle = normalize(wikipediaTitle ?? "")
+        let words = normalizedRequested.split(separator: " ").map(String.init)
+        let exactPhraseMatch = !normalizedRequested.isEmpty && normalizedRequested == normalizedTitle
+
+        if isRoyalEpithetPhrase(words) && !exactPhraseMatch {
+            return "gloss"
+        }
+
+        if isArchaicEthnonymPhrase(words) && !exactPhraseMatch {
+            return "gloss"
+        }
+
+        return annotationType
+    }
+
+    private static func extractJSONObject(from text: String) -> String? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.hasPrefix("{"), trimmed.hasSuffix("}") {
+            return trimmed
+        }
+
+        if let start = trimmed.firstIndex(of: "{"),
+           let end = trimmed.lastIndex(of: "}") {
+            return String(trimmed[start...end])
+        }
+
+        return nil
     }
 
     private static func fetchSummary(title: String) async -> WikiResult? {
@@ -514,6 +1107,7 @@ enum Wikipedia {
         contextAfter: String?
     ) async -> WikiResult? {
         let q = term.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trace = shouldTraceLookup(requested)
         guard !q.isEmpty else { return nil }
 
         // Brave Search finds the right Wikipedia page title via a real web index —
@@ -522,6 +1116,9 @@ enum Wikipedia {
         if let braveResult = await resolveViaBraveSearch(q, requested: requested,
                                                          contextBefore: contextBefore,
                                                          contextAfter: contextAfter) {
+            if trace {
+                log("  🔎 TRACE search-source=brave term=\"\(q)\" title=\(braveResult.title ?? "nil") score=\(String(format: "%.2f", braveResult.score ?? 0))")
+            }
             return braveResult
         }
 
@@ -605,6 +1202,9 @@ enum Wikipedia {
             }.map { $0.1 }
             let best = sorted[0].0
             let margin = sorted.count > 1 ? sorted[0].1 - sorted[1].1 : sorted[0].1
+            if trace {
+                log("  🔎 TRACE search-source=wiki term=\"\(q)\" best=\(best.title ?? "nil") score=\(String(format: "%.2f", best.score ?? 0)) margin=\(String(format: "%.2f", margin))")
+            }
 
             if best.status == .disambiguation {
                 return suppress(result: best, reason: "top candidate remained disambiguation")
@@ -696,9 +1296,23 @@ enum Wikipedia {
         // Try each query in order; stop once we have gate-passing Wikipedia candidates.
         var candidates: [SearchCandidate] = []
         for bq in braveQueries {
+            let cacheKey = "\(bq) site:en.wikipedia.org"
+
+            // Check disk cache first
+            if let cached = braveCache[cacheKey] {
+                let extracted = cached.candidates.map { SearchCandidate(title: $0.title, snippet: $0.snippet) }
+                let ranked = rankCandidates(requested: requested, candidates: extracted,
+                                            contextBefore: contextBefore, contextAfter: contextAfter)
+                if !ranked.isEmpty {
+                    candidates = extracted
+                    break
+                }
+                continue
+            }
+
             var comps = URLComponents(string: "https://api.search.brave.com/res/v1/web/search")!
             comps.queryItems = [
-                URLQueryItem(name: "q",     value: "\(bq) site:en.wikipedia.org"),
+                URLQueryItem(name: "q",     value: cacheKey),
                 URLQueryItem(name: "count", value: "8"),
             ]
             guard let url = comps.url else { continue }
@@ -725,6 +1339,13 @@ enum Wikipedia {
                 let snippet = (entry["description"] as? String) ?? ""
                 extracted.append(SearchCandidate(title: title, snippet: snippet))
             }
+
+            // Store in cache (even empty results, to avoid re-querying)
+            braveCache[cacheKey] = BraveCacheEntry(
+                candidates: extracted.map { CachedCandidate(title: $0.title, snippet: $0.snippet) },
+                timestamp: Date().timeIntervalSince1970
+            )
+            braveCacheDirty = true
 
             let ranked = rankCandidates(requested: requested, candidates: extracted,
                                         contextBefore: contextBefore, contextAfter: contextAfter)
@@ -906,6 +1527,43 @@ enum Wikipedia {
         return accepted
     }
 
+    /// Check if the candidate title is closely related to the requested term.
+    /// Used to guard the AI-failure fallback: "Chrysostomos" → "John Chrysostom" ✓,
+    /// "Haines" → "Tower Lake" ✗, "Mr Morris" → "Fantastic Flying Books..." ✗
+    private static func titleIsRelated(requested: String, candidateTitle: String) -> Bool {
+        // Reject disambiguation-style titles or titles with parenthetical qualifiers
+        // that the request doesn't have — likely a wrong-context match
+        // e.g. "Castle Hill" → "Castle Hill (Virginia)" ✗
+        let disambigSuffixes = ["(given name)", "(surname)", "(disambiguation)", "(name)"]
+        if disambigSuffixes.contains(where: { candidateTitle.lowercased().contains($0) }) {
+            return false
+        }
+        if candidateTitle.contains("(") && !requested.contains("(") {
+            return false
+        }
+        let reqWords = requested.lowercased()
+            .components(separatedBy: CharacterSet.alphanumerics.inverted)
+            .filter { $0.count >= 3 }
+        let titleWords = candidateTitle.lowercased()
+            .components(separatedBy: CharacterSet.alphanumerics.inverted)
+            .filter { $0.count >= 3 }
+        let titleWordSet = Set(titleWords)
+        guard !reqWords.isEmpty else { return false }
+        // Reject if title has way more words than request — likely a collision
+        // e.g. "Mr Morris" (1 word) vs "Fantastic Flying Books of Mr Morris Lessmore" (6 words)
+        if titleWords.count > reqWords.count * 3 { return false }
+        // Count how many request words have a prefix match in the title
+        var matchCount = 0
+        for rw in reqWords {
+            for tw in titleWordSet {
+                if rw.hasPrefix(tw) || tw.hasPrefix(rw) { matchCount += 1; break }
+            }
+        }
+        // For single-word requests, require 1 match. For multi-word, require majority.
+        let threshold = reqWords.count == 1 ? 1 : (reqWords.count + 1) / 2
+        return matchCount >= threshold
+    }
+
     private static func suppress(result: WikiResult, reason: String) -> WikiResult {
         var suppressed = result
         suppressed.status = .suppressed
@@ -1005,6 +1663,7 @@ enum Wikipedia {
             .filter { !$0.isEmpty }
 
         guard words.count >= 3 else { return [cleaned] }
+        let startsWithHonorific = honorificLeadWords.contains(words.first?.lowercased() ?? "")
 
         var seen = Set<String>()
         var queries: [String] = []
@@ -1016,11 +1675,19 @@ enum Wikipedia {
         }
 
         add(cleaned)
-        add(singularize(cleaned))
+        if !startsWithHonorific {
+            add(singularize(cleaned))
+        }
 
         let tail2 = words.suffix(2).joined(separator: " ")
-        add(tail2)
-        add(singularize(tail2))
+        let tail2Words = tail2.split(separator: " ").map(String.init)
+        let tail2MeaningfulCount = tail2Words.filter { !phraseConnectors.contains($0.lowercased()) }.count
+        if tail2MeaningfulCount >= 2,
+           let firstTail = tail2Words.first,
+           !phraseConnectors.contains(firstTail.lowercased()) {
+            add(tail2)
+            add(singularize(tail2))
+        }
 
         let meaningful = words.filter { !phraseConnectors.contains($0.lowercased()) }
         if meaningful.count >= 2 {
@@ -1327,6 +1994,11 @@ enum Wikipedia {
         let sportsWords: Set<String> = ["baseball", "basketball", "football", "club", "team", "league", "season", "player"]
         let biographyWords: Set<String> = ["actor", "actress", "politician", "rapper", "singer", "footballer", "cricketer", "minister", "coach", "player", "born"]
         let literaryRoleWords: Set<String> = ["poet", "writer", "author", "novelist", "philosopher", "critic", "theologian", "historian"]
+        let commercialWords: Set<String> = ["bank", "banks", "cafe", "cafes", "restaurant", "restaurants",
+                                            "company", "companies", "corporation", "brand", "franchise",
+                                            "chain", "holding", "holdings", "multinational", "investment"]
+        let organizationWords: Set<String> = ["order", "association", "society", "organization",
+                                              "fraternal", "lodge", "club", "brotherhood"]
 
         if requestedHasUppercase,
            reqWords.count == 1,
@@ -1339,6 +2011,30 @@ enum Wikipedia {
 
         if !sportsWords.isDisjoint(with: summaryWords), contextSummaryOverlap.isEmpty {
             score -= 0.40
+        }
+
+        if (!commercialWords.isDisjoint(with: titleWords) || !commercialWords.isDisjoint(with: summaryWords))
+            && contextSummaryOverlap.isEmpty {
+            score -= 0.70
+        }
+
+        let requestedLooksSymbolicAnimalPhrase = reqWords.count >= 2
+            && requestedHasUppercase
+            && !reqWords.isDisjoint(with: ["white", "sacred", "holy"])
+            && (!titleWords.isDisjoint(with: ["cafe", "cafes", "restaurant", "restaurants", "brand",
+                                              "film", "movie", "novel", "series", "show", "album"])
+                || loweredSummary.contains(" is a film")
+                || loweredSummary.contains(" is a novel")
+                || loweredSummary.contains(" is a television")
+                || loweredSummary.contains(" is the name of"))
+        if requestedLooksSymbolicAnimalPhrase {
+            score -= 0.90
+        }
+
+        if reqWords.count >= 3,
+           (!organizationWords.isDisjoint(with: titleWords) || !organizationWords.isDisjoint(with: summaryWords)),
+           contextSummaryOverlap.isEmpty {
+            score -= 0.45
         }
 
         if requestedHasUppercase,
@@ -1543,6 +2239,74 @@ enum Wikipedia {
         "it", "its", "this", "that", "these", "those", "with", "by", "from",
         "as", "he", "she", "they", "his", "her", "their", "not", "but",
         "which", "who", "what", "when", "where", "how", "also", "such"
+    ]
+
+    private static func shouldTraceLookup(_ requested: String) -> Bool {
+        let tracePhrases = Set(
+            (envValue("SUMMA_TRACE_LOOKUPS") ?? "")
+                .split(separator: ",")
+                .map { normalize(String($0)) }
+                .filter { !$0.isEmpty }
+        )
+        return tracePhrases.contains(normalize(requested))
+    }
+
+    private static func looksLikeStandaloneHeading(
+        _ requested: String,
+        contextBefore: String?,
+        contextAfter: String?
+    ) -> Bool {
+        let trimmedBefore = contextBefore?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let trimmedAfter = contextAfter?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let words = requested
+            .split(separator: " ")
+            .map { $0.trimmingCharacters(in: .punctuationCharacters) }
+            .filter { !$0.isEmpty }
+
+        guard trimmedBefore.isEmpty,
+              !trimmedAfter.isEmpty,
+              words.count >= 3,
+              words.count <= 8 else { return false }
+
+        let connectors: Set<String> = ["of", "the", "and", "a", "an", "to", "in"]
+        let titleCaseLike = words.allSatisfy { word in
+            if connectors.contains(word.lowercased()) { return true }
+            guard let first = word.first else { return false }
+            return first.isUppercase
+        }
+        return titleCaseLike
+    }
+
+    private static func isHighRiskLoosePhraseForSearch(_ requested: String) -> Bool {
+        let words = normalize(requested).split(separator: " ").map(String.init)
+        guard words.count == 2 else { return false }
+        let symbolicAdjectives: Set<String> = ["white", "black", "red", "blue", "holy", "sacred"]
+        let animalWords: Set<String> = ["dog", "horse", "bull", "elephant", "hound", "steed", "whale"]
+        return symbolicAdjectives.contains(words[0]) && animalWords.contains(words[1])
+    }
+
+    private static func isRoyalEpithetPhrase(_ words: [String]) -> Bool {
+        guard words.count >= 4,
+              let first = words.first,
+              honorificLeadWords.contains(first),
+              words.contains("of") else { return false }
+        let symbolicWords: Set<String> = ["white", "golden", "sacred", "imperial"]
+        let referentWords: Set<String> = ["elephant", "elephants", "bull", "bulls", "hound", "hounds", "dog", "dogs"]
+        return !symbolicWords.isDisjoint(with: Set(words)) && !referentWords.isDisjoint(with: Set(words))
+    }
+
+    private static func isArchaicEthnonymPhrase(_ words: [String]) -> Bool {
+        guard words.count >= 3 else { return false }
+        let leadWords: Set<String> = ["red", "white", "black", "yellow", "brown"]
+        let peopleWords: Set<String> = ["men", "man", "people", "peoples", "tribes", "race"]
+        return leadWords.contains(words.first ?? "")
+            && !peopleWords.isDisjoint(with: Set(words))
+            && words.contains("of")
+    }
+
+    private static let honorificLeadWords: Set<String> = [
+        "lord", "lady", "king", "queen", "duke", "prince", "princess",
+        "emperor", "empress", "saint", "st"
     ]
 
     // Extracts the parenthetical disambiguator from a title, e.g. "Mercury (planet)" → "planet".

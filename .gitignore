@@ -28,6 +28,11 @@ playground.xcworkspace
 # Caches
 *.moved-aside
 *.swp
+__pycache__/
+*.pyc
+
+# Local env / secrets
+.env
 
 # Claude Code
 .claude/

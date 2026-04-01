@@ -1,0 +1,20 @@
+[
+  {
+    "bookId": 1342,
+    "phrase": "Lady Lucas",
+    "annotation_type": "suppress",
+    "_reason": "Lisa Lucas — fictional character in P&P, not a real person"
+  },
+  {
+    "bookId": 1342,
+    "phrase": "Mr Morris",
+    "annotation_type": "suppress",
+    "_reason": "Fantastic Flying Books of Mr Morris Lessmore — wrong"
+  },
+  {
+    "bookId": 1342,
+    "phrase": "Lizzy",
+    "annotation_type": "suppress",
+    "_reason": "Lizzie (disambiguation) — Lizzy is Elizabeth Bennet, a fictional character"
+  }
+]

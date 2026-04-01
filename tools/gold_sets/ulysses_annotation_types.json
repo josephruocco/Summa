@@ -1,0 +1,69 @@
+[
+  {
+    "bookId": 4300,
+    "phrase": "Buck Mulligan",
+    "annotation_type": "wikipedia",
+    "expected": "Buck Mulligan",
+    "_reason": "Named fictional character with a stable article."
+  },
+  {
+    "bookId": 4300,
+    "phrase": "Stephen Dedalus",
+    "annotation_type": "wikipedia",
+    "expected": "Stephen Dedalus",
+    "_reason": "Named fictional character with a stable article."
+  },
+  {
+    "bookId": 4300,
+    "phrase": "Kinch",
+    "annotation_type": "wikipedia",
+    "expected": "Stephen Dedalus",
+    "_reason": "Nickname that directly refers to Stephen Dedalus."
+  },
+  {
+    "bookId": 4300,
+    "phrase": "Chrysostomos",
+    "annotation_type": "wikipedia",
+    "expected": "John Chrysostom",
+    "_reason": "Classical/church-father allusion with a stable referent."
+  },
+  {
+    "bookId": 4300,
+    "phrase": "Introibo",
+    "annotation_type": "gloss",
+    "_reason": "Liturgical Latin opening better treated as contextual gloss than a brittle title match."
+  },
+  {
+    "bookId": 4300,
+    "phrase": "Kingstown",
+    "annotation_type": "wikipedia",
+    "expected": "Dún Laoghaire",
+    "_reason": "Historical place name."
+  },
+  {
+    "bookId": 4300,
+    "phrase": "Algy",
+    "annotation_type": "wikipedia",
+    "expected": "Algernon Charles Swinburne",
+    "_reason": "Nickname used for a named literary figure."
+  },
+  {
+    "bookId": 4300,
+    "phrase": "Caliban",
+    "annotation_type": "wikipedia",
+    "expected": "Caliban",
+    "_reason": "Direct Shakespearean referent."
+  },
+  {
+    "bookId": 4300,
+    "phrase": "Thalatta",
+    "annotation_type": "gloss",
+    "_reason": "Quoted classical sea-cry; gloss fits the literary allusion better than a brittle title target."
+  },
+  {
+    "bookId": 4300,
+    "phrase": "Scutter",
+    "annotation_type": "suppress",
+    "_reason": "Hiberno-English slang, not a reference."
+  }
+]

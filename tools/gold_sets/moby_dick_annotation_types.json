@@ -1,0 +1,108 @@
+[
+  {
+    "bookId": 2701,
+    "phrase": "Whiteness of the Whale",
+    "annotation_type": "suppress",
+    "_reason": "Chapter heading / thematic label, not a linkable referent."
+  },
+  {
+    "bookId": 2701,
+    "phrase": "Ahab",
+    "annotation_type": "wikipedia",
+    "expected": "Captain Ahab",
+    "_reason": "Named fictional character with a stable article."
+  },
+  {
+    "bookId": 2701,
+    "phrase": "Siam",
+    "annotation_type": "wikipedia",
+    "expected": "Thailand",
+    "_reason": "Historical country name."
+  },
+  {
+    "bookId": 2701,
+    "phrase": "Great Jove",
+    "annotation_type": "wikipedia",
+    "expected": "Jupiter (god)",
+    "_reason": "Direct mythological referent."
+  },
+  {
+    "bookId": 2701,
+    "phrase": "Lord of the White Elephants",
+    "annotation_type": "gloss",
+    "_reason": "Royal epithet in historical Southeast Asian context; gloss is safer than a modern concept page."
+  },
+  {
+    "bookId": 2701,
+    "phrase": "Cæsarian",
+    "annotation_type": "gloss",
+    "_reason": "Adjectival imperial rhetoric, not a stable standalone target."
+  },
+  {
+    "bookId": 2701,
+    "phrase": "Red Men of America",
+    "annotation_type": "gloss",
+    "_reason": "Period ethnonym; better handled as contextual gloss than title lookup."
+  },
+  {
+    "bookId": 2701,
+    "phrase": "Iroquois",
+    "annotation_type": "wikipedia",
+    "expected": "Iroquois",
+    "_reason": "Stable people/civilization article."
+  },
+  {
+    "bookId": 2701,
+    "phrase": "White Dog",
+    "annotation_type": "gloss",
+    "_reason": "Ritual/cultural reference; title collisions make direct linking unsafe."
+  },
+  {
+    "bookId": 2701,
+    "phrase": "Great Spirit",
+    "annotation_type": "wikipedia",
+    "expected": "Great Spirit",
+    "_reason": "Stable religious concept article."
+  },
+  {
+    "bookId": 2701,
+    "phrase": "Romish",
+    "annotation_type": "wikipedia",
+    "expected": "Catholic Church",
+    "_reason": "Archaic adjective with a clear religious referent."
+  },
+  {
+    "bookId": 2701,
+    "phrase": "Holy One",
+    "annotation_type": "wikipedia",
+    "expected": "God in Christianity",
+    "_reason": "Religious title with a clear contextual referent."
+  },
+  {
+    "bookId": 2701,
+    "phrase": "Coleridge",
+    "annotation_type": "wikipedia",
+    "expected": "Samuel Taylor Coleridge",
+    "_reason": "Named literary figure."
+  },
+  {
+    "bookId": 2701,
+    "phrase": "White Steed",
+    "annotation_type": "suppress",
+    "_reason": "Symbolic phrase without a stable target."
+  },
+  {
+    "bookId": 2701,
+    "phrase": "Rocky Mountains",
+    "annotation_type": "wikipedia",
+    "expected": "Rocky Mountains",
+    "_reason": "Direct geographic referent."
+  },
+  {
+    "bookId": 2701,
+    "phrase": "Albino",
+    "annotation_type": "wikipedia",
+    "expected": "Albinism",
+    "_reason": "Stable concept article."
+  }
+]

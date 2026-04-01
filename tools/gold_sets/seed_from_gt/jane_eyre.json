@@ -1,0 +1,15 @@
+[
+  {
+    "bookId": 1260,
+    "phrase": "Caligula",
+    "annotation_type": "wikipedia",
+    "expected": "Caligula",
+    "_reason": "John Reed compared to the Roman emperor by Jane"
+  },
+  {
+    "bookId": 1260,
+    "phrase": "Where the Northern Ocean",
+    "annotation_type": "suppress",
+    "_reason": "Fragment of a descriptive passage about the arctic, not a proper noun reference"
+  }
+]

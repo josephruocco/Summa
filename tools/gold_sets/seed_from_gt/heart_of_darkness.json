@@ -1,0 +1,32 @@
+[
+  {
+    "bookId": 526,
+    "phrase": "Sir John Franklin",
+    "annotation_type": "wikipedia",
+    "expected": "John Franklin"
+  },
+  {
+    "bookId": 526,
+    "phrase": "Golden Hind",
+    "annotation_type": "wikipedia",
+    "expected": "Golden Hind"
+  },
+  {
+    "bookId": 526,
+    "phrase": "Gravesend",
+    "annotation_type": "wikipedia",
+    "expected": "Gravesend"
+  },
+  {
+    "bookId": 526,
+    "phrase": "Gauls",
+    "annotation_type": "wikipedia",
+    "expected": "Gauls"
+  },
+  {
+    "bookId": 526,
+    "phrase": "Falernian",
+    "annotation_type": "wikipedia",
+    "expected": "Falernian wine"
+  }
+]

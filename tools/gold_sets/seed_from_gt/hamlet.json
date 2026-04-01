@@ -1,0 +1,29 @@
+[
+  {
+    "bookId": 1524,
+    "phrase": "Fortinbras of Norway",
+    "annotation_type": "wikipedia",
+    "expected": "Fortinbras"
+  },
+  {
+    "bookId": 1524,
+    "phrase": "Polacks",
+    "annotation_type": "wikipedia",
+    "expected": "Polish people",
+    "_reason": "Fortinbras marches against the Polacks — derogatory term for Polish people; both 'Poland' and 'Polish people' are acceptable"
+  },
+  {
+    "bookId": 1524,
+    "phrase": "ACT SCENE Elsinore",
+    "annotation_type": "wikipedia",
+    "expected": "Helsingør",
+    "_reason": "Elsinore is the English name for Helsingør, Denmark — Hamlet's castle setting"
+  },
+  {
+    "bookId": 1524,
+    "phrase": "Th'extravagant",
+    "annotation_type": "wikipedia",
+    "expected": "Purgatory",
+    "_reason": "The Ghost is an 'extravagant and erring spirit' — must return to Purgatory before dawn"
+  }
+]

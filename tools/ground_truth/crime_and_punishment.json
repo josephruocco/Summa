@@ -1,0 +1,17 @@
+[
+  {
+    "_comment": "Crime and Punishment — Part I Chapter I (ID 2554)",
+    "bookId": 2554,
+    "phrase": "Hay Market",
+    "expected": "Sennaya Square",
+    "verdict": "ok",
+    "_reason": "AI correctly identifies as the Haymarket in St. Petersburg — Wikipedia title is Sennaya Square"
+  },
+  {
+    "bookId": 2554,
+    "phrase": "Good-bye",
+    "expected": null,
+    "verdict": "suppress",
+    "_reason": "Good-bye-ee! WWI song — wrong for Russian novel"
+  }
+]

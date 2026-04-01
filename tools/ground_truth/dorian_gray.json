@@ -1,0 +1,56 @@
+[
+  {
+    "_comment": "The Picture of Dorian Gray — Chapter I (ID 174)",
+    "bookId": 174,
+    "phrase": "Dorian Gray",
+    "expected": "The Picture of Dorian Gray",
+    "verdict": "ok"
+  },
+  {
+    "bookId": 174,
+    "phrase": "Southwark",
+    "expected": "Southwark",
+    "verdict": "ok"
+  },
+  {
+    "bookId": 174,
+    "phrase": "Adonis",
+    "expected": "Adonis",
+    "verdict": "ok"
+  },
+  {
+    "bookId": 174,
+    "phrase": "Harry Where",
+    "expected": null,
+    "verdict": "suppress",
+    "_reason": "Harry Potter — 'Harry' here is Lord Henry Wotton in Dorian Gray"
+  },
+  {
+    "bookId": 174,
+    "phrase": "Harry Why",
+    "expected": null,
+    "verdict": "suppress",
+    "_reason": "Harry Potter — same issue, mangled phrase"
+  },
+  {
+    "bookId": 174,
+    "phrase": "Unconsciously",
+    "expected": null,
+    "verdict": "suppress",
+    "_reason": "Unconscious mind — 'unconsciously' is an adverb, not a proper reference"
+  },
+  {
+    "bookId": 174,
+    "phrase": "Venetians",
+    "expected": "Venetian painting",
+    "verdict": "ok",
+    "_reason": "Basil says oil-painting was to the Venetians — refers to Venetian school of painting"
+  },
+  {
+    "bookId": 174,
+    "phrase": "Lord Goodbody",
+    "expected": null,
+    "verdict": "suppress",
+    "_reason": "Slim Goodbody is a children's TV character — fictional aristocrat name"
+  }
+]

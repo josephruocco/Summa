@@ -1,0 +1,55 @@
+[
+  {
+    "_comment": "Of Experience (ID 3600)",
+    "bookId": 3600,
+    "phrase": "Socrates",
+    "expected": "Socrates",
+    "verdict": "ok"
+  },
+  {
+    "bookId": 3600,
+    "phrase": "Alcibiades",
+    "expected": "Alcibiades",
+    "verdict": "ok"
+  },
+  {
+    "bookId": 3600,
+    "phrase": "Heraclitus",
+    "expected": "Heraclitus",
+    "verdict": "ok"
+  },
+  {
+    "bookId": 3600,
+    "phrase": "Cyrenaics",
+    "expected": "Cyrenaics",
+    "verdict": "ok"
+  },
+  {
+    "bookId": 3600,
+    "phrase": "Crates",
+    "expected": "Crates of Thebes",
+    "verdict": "ok",
+    "_reason": "AI correctly resolves to Crates of Thebes (Cynic philosopher referenced by Montaigne)"
+  },
+  {
+    "bookId": 3600,
+    "phrase": "Mus",
+    "expected": null,
+    "verdict": "gloss",
+    "_reason": "Latin term in Montaigne's essay; a brief explanatory gloss is the correct output"
+  },
+  {
+    "bookId": 3600,
+    "phrase": "Estienne de la Boetie",
+    "expected": "Étienne de La Boétie",
+    "verdict": "ok",
+    "_reason": "AI correctly resolves — Montaigne's best friend"
+  },
+  {
+    "bookId": 3600,
+    "phrase": "Orat We",
+    "expected": null,
+    "verdict": "suppress",
+    "_reason": "Al-Taqaddum Air Base — obviously wrong, mangled Latin phrase"
+  }
+]

@@ -1,0 +1,36 @@
+[
+  {
+    "_comment": "Hamlet — Act I (ID 1524)",
+    "bookId": 1524,
+    "phrase": "Fortinbras",
+    "expected": "Fortinbras",
+    "verdict": "ok"
+  },
+  {
+    "bookId": 1524,
+    "phrase": "Fortinbras of Norway",
+    "expected": "Fortinbras",
+    "verdict": "ok"
+  },
+  {
+    "bookId": 1524,
+    "phrase": "Polacks",
+    "expected": "Polish people",
+    "verdict": "ok",
+    "_reason": "Fortinbras marches against the Polacks — derogatory term for Polish people; both 'Poland' and 'Polish people' are acceptable"
+  },
+  {
+    "bookId": 1524,
+    "phrase": "ACT SCENE Elsinore",
+    "expected": null,
+    "verdict": "suppress",
+    "_reason": "Stage direction artifact — 'ACT SCENE Elsinore' is a formatting phrase, not a linkable reference. Standalone 'Elsinore' is correctly annotated separately."
+  },
+  {
+    "bookId": 1524,
+    "phrase": "Th'extravagant",
+    "expected": null,
+    "verdict": "gloss",
+    "_reason": "Archaic for 'wandering beyond bounds' — the ghost must return before dawn. A gloss explaining the word is more useful than a link to Purgatory."
+  }
+]

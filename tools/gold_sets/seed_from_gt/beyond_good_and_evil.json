@@ -1,0 +1,63 @@
+[
+  {
+    "bookId": 4363,
+    "phrase": "Spinoza",
+    "annotation_type": "wikipedia",
+    "expected": "Baruch Spinoza"
+  },
+  {
+    "bookId": 4363,
+    "phrase": "Oedipus",
+    "annotation_type": "wikipedia",
+    "expected": "Oedipus"
+  },
+  {
+    "bookId": 4363,
+    "phrase": "Stoicism",
+    "annotation_type": "wikipedia",
+    "expected": "Stoicism"
+  },
+  {
+    "bookId": 4363,
+    "phrase": "Nihilism",
+    "annotation_type": "wikipedia",
+    "expected": "Nihilism"
+  },
+  {
+    "bookId": 4363,
+    "phrase": "Epicurus",
+    "annotation_type": "wikipedia",
+    "expected": "Epicurus"
+  },
+  {
+    "bookId": 4363,
+    "phrase": "Positivism",
+    "annotation_type": "wikipedia",
+    "expected": "Positivism"
+  },
+  {
+    "bookId": 4363,
+    "phrase": "WHO HE IS",
+    "annotation_type": "suppress",
+    "_reason": "Bill Withers — obviously wrong for Nietzsche's Beyond Good and Evil"
+  },
+  {
+    "bookId": 4363,
+    "phrase": "HOW COULD",
+    "annotation_type": "suppress",
+    "_reason": "How Could It Be (pop song) — mangled phrase from Nietzsche text"
+  },
+  {
+    "bookId": 4363,
+    "phrase": "INSPIRING GENII",
+    "annotation_type": "suppress",
+    "_reason": "Inspiring Generation (Korean drama) — wrong"
+  },
+  {
+    "bookId": 4363,
+    "phrase": "Pallas Athene",
+    "annotation_type": "wikipedia",
+    "expected": "Athena",
+    "_reason": "Pallas Athena is the Greek goddess — AI now correctly resolves to Athena not the Rembrandt painting"
+  }
+]

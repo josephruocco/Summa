@@ -1,0 +1,83 @@
+[
+  {
+    "bookId": 8387,
+    "phrase": "Kant's",
+    "annotation_type": "wikipedia",
+    "expected": "Immanuel Kant"
+  },
+  {
+    "bookId": 8387,
+    "phrase": "Renan",
+    "annotation_type": "wikipedia",
+    "expected": "Ernest Renan"
+  },
+  {
+    "bookId": 8387,
+    "phrase": "St Olav's",
+    "annotation_type": "wikipedia",
+    "expected": "St. Olav's shrine",
+    "_reason": "The shrine in Nidaros Cathedral — pipeline correctly returns this"
+  },
+  {
+    "bookId": 8387,
+    "phrase": "Ylajali",
+    "annotation_type": "suppress",
+    "_reason": "Invented nonsense word the protagonist shouts — not a real reference"
+  },
+  {
+    "bookId": 8387,
+    "phrase": "Morgenbladet",
+    "annotation_type": "wikipedia",
+    "expected": "Morgenbladet"
+  },
+  {
+    "bookId": 8387,
+    "phrase": "South America",
+    "annotation_type": "wikipedia",
+    "expected": "South America"
+  },
+  {
+    "bookId": 8387,
+    "phrase": "Christiania",
+    "annotation_type": "wikipedia",
+    "expected": "Oslo"
+  },
+  {
+    "bookId": 8387,
+    "phrase": "Good-bye",
+    "annotation_type": "suppress",
+    "_reason": "Good-bye-ee! is a 1914 British music hall song"
+  },
+  {
+    "bookId": 8387,
+    "phrase": "Castle Hill",
+    "annotation_type": "wikipedia",
+    "expected": "Akershus Fortress",
+    "_reason": "AI correctly identifies as Akershus Fortress — the castle in Oslo (Christiania) where Hunger is set"
+  },
+  {
+    "bookId": 8387,
+    "phrase": "Crimes of Futurity",
+    "annotation_type": "suppress",
+    "_reason": "Dr. Futurity is a Philip K. Dick sci-fi novel"
+  },
+  {
+    "bookId": 8387,
+    "phrase": "Outside No",
+    "annotation_type": "suppress",
+    "_reason": "Pajama Sam computer game — mangled phrase"
+  },
+  {
+    "bookId": 8387,
+    "phrase": "Bookseller Pascha",
+    "annotation_type": "suppress",
+    "_reason": "The Bookseller is too generic"
+  },
+  {
+    "bookId": 8387,
+    "phrase": "Carl Johann Street",
+    "annotation_type": "wikipedia",
+    "expected": "Karl Johans gate",
+    "_reason": "Main street of Oslo/Christiania — AI now resolves correctly"
+  }
+]

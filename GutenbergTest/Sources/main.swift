@@ -519,6 +519,24 @@ let demoOutputDir: String = nonFlags.first(where: { $0.contains("/") }) ?? "/Use
 let requestedIDs = Set(nonFlags.compactMap { Int($0) })
 let bookList = requestedIDs.isEmpty ? defaultBooks : defaultBooks.filter { requestedIDs.contains($0.id) }
 
+// Load literary notes from JSON (keyed by book ID string)
+let literaryNotes: [Int: String] = {
+    let candidates = [
+        FileManager.default.currentDirectoryPath + "/../tools/literary_notes.json",
+        FileManager.default.currentDirectoryPath + "/tools/literary_notes.json",
+        "/Users/josephruocco/Downloads/Summa-main/tools/literary_notes.json"
+    ]
+    for path in candidates {
+        if let data = FileManager.default.contents(atPath: path),
+           let dict = try? JSONSerialization.jsonObject(with: data) as? [String: String] {
+            var result: [Int: String] = [:]
+            for (k, v) in dict { if let id = Int(k) { result[id] = v } }
+            return result
+        }
+    }
+    return [:]
+}()
+
 let maxRefsPerBook  = 40
 let maxVocabPerBook = 30
 let commonWords = CommonWordsLoader.set
@@ -586,7 +604,8 @@ for book in bookList {
                 candidate.phrase,
                 contextBefore: candidate.contextBefore.isEmpty ? nil : candidate.contextBefore,
                 contextAfter: candidate.contextAfter.isEmpty ? nil : candidate.contextAfter,
-                bookContext: book.chapterTitle
+                bookContext: book.chapterTitle,
+                literaryNote: literaryNotes[book.id]
             )
         }
         let annotationPlan = rawAnnotationPlan.map { normalizedPlanForRuntime(candidate.phrase, plan: $0) }
@@ -668,7 +687,9 @@ for book in bookList {
             candidate.phrase,
             contextBefore: candidate.contextBefore.isEmpty ? nil : candidate.contextBefore,
             contextAfter:  candidate.contextAfter.isEmpty  ? nil : candidate.contextAfter,
-            bookContext: book.chapterTitle
+            bookContext: book.chapterTitle,
+            preApprovedTitle: annotationPlan?.annotationType == "wikipedia" ? annotationPlan?.wikipediaTitle : nil,
+            planSaysWikipedia: annotationPlan?.annotationType == "wikipedia"
         )
 
         let icon = result.status == .ok ? "✓" : (result.status == .suppressed ? "~" : "✗")
@@ -816,4 +837,5 @@ let existing = (try? String(contentsOfFile: logPath, encoding: .utf8)) ?? ""
 try? (existing + logLines.joined(separator: "\n")).write(toFile: logPath, atomically: true, encoding: .utf8)
 log("Scores appended to \(logPath)")
 
+Wikipedia.saveBraveCacheIfNeeded()
 log("Done.")

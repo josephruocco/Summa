@@ -35,8 +35,8 @@
     "bookId": 3600,
     "phrase": "Mus",
     "expected": null,
-    "verdict": "suppress",
-    "_reason": "Memphis University School — completely wrong"
+    "verdict": "gloss",
+    "_reason": "Latin term in Montaigne's essay; a brief explanatory gloss is the correct output"
   },
   {
     "bookId": 3600,

@@ -29,8 +29,8 @@
     "bookId": 8387,
     "phrase": "Ylajali",
     "expected": null,
-    "verdict": "suppress",
-    "_reason": "Invented nonsense word the protagonist shouts — not a real reference"
+    "verdict": "gloss",
+    "_reason": "Invented name the narrator coins for the mysterious woman he becomes obsessed with; a gloss is the correct output"
   },
   {
     "bookId": 8387,

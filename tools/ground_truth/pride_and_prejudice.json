@@ -10,8 +10,8 @@
     "bookId": 1342,
     "phrase": "Lady Lucas",
     "expected": null,
-    "verdict": "suppress",
-    "_reason": "Lisa Lucas — fictional character in P&P, not a real person"
+    "verdict": "gloss",
+    "_reason": "Minor fictional character in P&P; a gloss identifying her role is correct output"
   },
   {
     "bookId": 1342,
@@ -23,8 +23,8 @@
   {
     "bookId": 1342,
     "phrase": "Lizzy",
-    "expected": null,
-    "verdict": "suppress",
-    "_reason": "Lizzie (disambiguation) — Lizzy is Elizabeth Bennet, a fictional character"
+    "expected": "Elizabeth Bennet",
+    "verdict": "ok",
+    "_reason": "Lizzy is Elizabeth Bennet's nickname; pipeline correctly links to the Wikipedia article"
   }
 ]

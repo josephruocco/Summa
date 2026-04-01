@@ -86,13 +86,21 @@ def parse_tsv(lines):
     rows = []
     reader = csv.DictReader(lines, delimiter="\t")
     for row in reader:
-        rows.append({
-            "bookId":    int(row.get("bookID", 0)),
-            "phrase":    row.get("phrase", "").strip(),
-            "status":    row.get("status", "").strip(),
-            "wikiTitle": row.get("wikiTitle", "").strip(),
-            "score":     float(row["score"]) if row.get("score") else None,
-        })
+        status = row.get("status") or ""
+        phrase = row.get("phrase") or ""
+        title  = row.get("wikiTitle") or ""
+        score  = row.get("score") or ""
+        book_id = row.get("bookID") or "0"
+        try:
+            rows.append({
+                "bookId":    int(book_id),
+                "phrase":    phrase.strip(),
+                "status":    status.strip(),
+                "wikiTitle": title.strip(),
+                "score":     float(score) if score.strip() else None,
+            })
+        except (ValueError, AttributeError):
+            continue  # skip malformed rows
     return rows
 
 
@@ -124,6 +132,14 @@ def evaluate(rows, gt):
                     wrong_title.append((row, entry))
             else:
                 fn.append((row, entry))
+
+        elif verdict == "gloss":
+            if status == "gloss":
+                tp.append((row, entry))
+            elif status in ("notFound", "suppressed", "error", ""):
+                fn.append((row, entry))
+            else:
+                fp.append((row, entry))
 
         elif verdict == "suppress":
             if status in ("notFound", "suppressed", "error", ""):

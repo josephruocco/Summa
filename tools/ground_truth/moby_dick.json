@@ -125,28 +125,28 @@
     "bookId": 2701,
     "phrase": "Lord of the White Elephants",
     "expected": null,
-    "verdict": "suppress",
-    "_reason": "Current pipeline collapses the Siamese royal epithet into the modern 'white elephant' idiom"
+    "verdict": "gloss",
+    "_reason": "Siamese royal epithet; correct output is a gloss explaining the title, not a Wikipedia link"
   },
   {
     "bookId": 2701,
     "phrase": "Cæsarian",
     "expected": null,
-    "verdict": "suppress",
-    "_reason": "Adjectival imperial usage in Melville; current pipeline wrongly resolves it to Caesarean section"
+    "verdict": "gloss",
+    "_reason": "Adjectival imperial usage in Melville; correct output is a gloss, not a Wikipedia link"
   },
   {
     "bookId": 2701,
     "phrase": "Red Men of America",
     "expected": null,
-    "verdict": "suppress",
-    "_reason": "Current pipeline absurdly resolves this phrase to Bank of America"
+    "verdict": "gloss",
+    "_reason": "Archaic term for Native Americans; correct output is a gloss, not a Wikipedia link"
   },
   {
     "bookId": 2701,
     "phrase": "White Dog",
     "expected": null,
-    "verdict": "suppress",
-    "_reason": "Current pipeline wrongly resolves the sacred White Dog reference to White Dog Cafe"
+    "verdict": "gloss",
+    "_reason": "Sacred White Dog in Iroquois context; correct output is a gloss, not a Wikipedia link"
   }
 ]

@@ -22,15 +22,15 @@
   {
     "bookId": 1524,
     "phrase": "ACT SCENE Elsinore",
-    "expected": "Helsingør",
-    "verdict": "ok",
-    "_reason": "Elsinore is the English name for Helsingør, Denmark — Hamlet's castle setting"
+    "expected": null,
+    "verdict": "suppress",
+    "_reason": "Stage direction artifact — 'ACT SCENE Elsinore' is a formatting phrase, not a linkable reference. Standalone 'Elsinore' is correctly annotated separately."
   },
   {
     "bookId": 1524,
     "phrase": "Th'extravagant",
-    "expected": "Purgatory",
-    "verdict": "ok",
-    "_reason": "The Ghost is an 'extravagant and erring spirit' — must return to Purgatory before dawn"
+    "expected": null,
+    "verdict": "gloss",
+    "_reason": "Archaic for 'wandering beyond bounds' — the ghost must return before dawn. A gloss explaining the word is more useful than a link to Purgatory."
   }
 ]

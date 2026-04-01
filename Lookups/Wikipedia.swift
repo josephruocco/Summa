@@ -71,6 +71,22 @@ enum Wikipedia {
         var bestSuppressedResult: WikiResult? = nil
         var hitSuspiciousDirect = false
 
+        func storeCandidate(_ candidate: WikiResult?) {
+            guard let candidate else { return }
+            let candidateScore = candidate.score ?? 0.0
+            if candidateScore > bestDirectScore {
+                bestDirectScore = candidateScore
+            }
+            if candidateScore > (bestSuppressedResult?.score ?? 0.0) {
+                bestSuppressedResult = candidate
+            }
+        }
+
+        func returnIfHighConfidence(_ candidate: WikiResult?) -> WikiResult? {
+            guard let candidate, let score = candidate.score, score >= 0.90 else { return nil }
+            return candidate
+        }
+
         for query in retryQueries(for: requested) {
             if let direct = await fetchSummary(title: query) {
                 if direct.status != .notFound { allBaseNotFound = false }
@@ -104,26 +120,20 @@ enum Wikipedia {
                        resolvedScore >= max(0.62, directScore + 0.05) {
                         // Return immediately only for high-confidence results.
                         // Uncertain results fall through to the AI cross-check.
-                        if resolvedScore >= 0.90 {
-                            return resolved
+                        if let highConfidence = returnIfHighConfidence(resolved) {
+                            return highConfidence
                         }
-                        if resolvedScore > (bestSuppressedResult?.score ?? 0) {
-                            bestDirectScore = max(bestDirectScore, resolvedScore)
-                            bestSuppressedResult = resolved
-                        }
+                        storeCandidate(resolved)
                     }
                 }
 
                 if !suspiciousDirect,
                    let accepted = verify(result: direct, requested: requested, contextBefore: contextBefore, contextAfter: contextAfter) {
                     // Very high confidence → return immediately; uncertain → fall through to AI
-                    if let s = accepted.score, s >= 0.90 {
-                        return accepted
+                    if let highConfidence = returnIfHighConfidence(accepted) {
+                        return highConfidence
                     }
-                    if (accepted.score ?? 0) > (bestSuppressedResult?.score ?? 0) {
-                        bestDirectScore = max(bestDirectScore, accepted.score ?? 0)
-                        bestSuppressedResult = accepted
-                    }
+                    storeCandidate(accepted)
                 }
 
                 if direct.status == .disambiguation {
@@ -133,11 +143,10 @@ enum Wikipedia {
                     if let resolved, let accepted = verify(result: resolved, requested: requested, contextBefore: contextBefore, contextAfter: contextAfter) {
                         // High-confidence disambiguation result: return immediately.
                         // Uncertain result: store as candidate and fall through to AI.
-                        if let s = accepted.score, s >= 0.90 {
-                            return accepted
+                        if let highConfidence = returnIfHighConfidence(accepted) {
+                            return highConfidence
                         }
-                        bestDirectScore = max(bestDirectScore, accepted.score ?? 0)
-                        bestSuppressedResult = accepted
+                        storeCandidate(accepted)
                     }
                     // Don't suppress here — fall through so the outer handler can retry
                     // with a plain search, which is more reliable for single proper nouns
@@ -150,7 +159,7 @@ enum Wikipedia {
                     // Context expansion below may find a better match.
                     if directScore > bestDirectScore {
                         bestDirectScore = directScore
-                        bestSuppressedResult = suppress(result: direct, reason: "direct result scored too low")
+                        storeCandidate(suppress(result: direct, reason: "direct result scored too low"))
                     }
                 }
             }
@@ -199,29 +208,24 @@ enum Wikipedia {
                             return accepted
                         }
                         // Store as candidate for AI comparison
-                        if bestSuppressedResult == nil || s > (bestSuppressedResult?.score ?? 0) {
-                            var candidate = resolved
-                            candidate.requested = requested
-                            bestSuppressedResult = candidate
-                        }
+                        var candidate = resolved
+                        candidate.requested = requested
+                        storeCandidate(candidate)
                         continue
                     }
                     if let accepted = verify(result: resolved, requested: query, contextBefore: contextBefore, contextAfter: contextAfter) {
                         var rebound = accepted
                         rebound.requested = requested
-                        if let s = rebound.score, s >= 0.90 {
-                            return rebound
+                        if let highConfidence = returnIfHighConfidence(rebound) {
+                            return highConfidence
                         }
-                        if (rebound.score ?? 0) > (bestSuppressedResult?.score ?? 0) {
-                            bestDirectScore = max(bestDirectScore, rebound.score ?? 0)
-                            bestSuppressedResult = rebound
-                        }
+                        storeCandidate(rebound)
                         continue
                     }
                     if resolved.status == .ok {
                         var suppressed = suppress(result: resolved, reason: "phrase search result scored too low")
                         suppressed.requested = requested
-                        bestSuppressedResult = suppressed
+                        storeCandidate(suppressed)
                     }
                 }
             }
@@ -257,26 +261,18 @@ enum Wikipedia {
                 // Re-running verify() here would re-score against the redirect title and fail. Trust the
                 // score resolveViaSearch already set.
                 // High-confidence → return immediately. Uncertain → store and let AI cross-check.
-                if resolved.status == .ok, let s = resolved.score {
-                    if s >= 0.90 {
-                        return resolved
+                if resolved.status == .ok, let _ = resolved.score {
+                    if let highConfidence = returnIfHighConfidence(resolved) {
+                        return highConfidence
                     }
-                    if s > (bestSuppressedResult?.score ?? 0) {
-                        bestDirectScore = max(bestDirectScore, s)
-                        bestSuppressedResult = resolved
-                    }
+                    storeCandidate(resolved)
                 } else if let accepted = verify(result: resolved, requested: requested, contextBefore: contextBefore, contextAfter: contextAfter) {
-                    if let s = accepted.score, s >= 0.90 {
-                        return accepted
+                    if let highConfidence = returnIfHighConfidence(accepted) {
+                        return highConfidence
                     }
-                    if (accepted.score ?? 0) > (bestSuppressedResult?.score ?? 0) {
-                        bestDirectScore = max(bestDirectScore, accepted.score ?? 0)
-                        bestSuppressedResult = accepted
-                    }
+                    storeCandidate(accepted)
                 } else if resolved.status == .ok {
-                    if resolved.score ?? 0 > (bestSuppressedResult?.score ?? 0) {
-                        bestSuppressedResult = suppress(result: resolved, reason: "fallback search result scored too low")
-                    }
+                    storeCandidate(suppress(result: resolved, reason: "fallback search result scored too low"))
                 }
                 // Don't propagate error results — fall through to AI / bestSuppressedResult
             }

@@ -87,6 +87,22 @@ enum Wikipedia {
             return candidate
         }
 
+        func absorbCandidate(_ candidate: WikiResult?) -> WikiResult? {
+            if let highConfidence = returnIfHighConfidence(candidate) {
+                return highConfidence
+            }
+            storeCandidate(candidate)
+            return nil
+        }
+
+        func searchTermForFallback(preferPlainSingleProperNoun: Bool) -> String {
+            let isSingleProperNoun = requested.first?.isUppercase == true && !requested.contains(" ")
+            if preferPlainSingleProperNoun && isSingleProperNoun {
+                return requested
+            }
+            return contextAugmentedQuery(requested, contextBefore: contextBefore, contextAfter: contextAfter) ?? requested
+        }
+
         for query in retryQueries(for: requested) {
             if let direct = await fetchSummary(title: query) {
                 if direct.status != .notFound { allBaseNotFound = false }
@@ -109,10 +125,7 @@ enum Wikipedia {
                 )
                 if suspiciousDirect {
                     hitSuspiciousDirect = true
-                    let isSingleProperNoun = requested.first?.isUppercase == true && !requested.contains(" ")
-                    let searchTerm = isSingleProperNoun
-                        ? requested
-                        : (contextAugmentedQuery(requested, contextBefore: contextBefore, contextAfter: contextAfter) ?? requested)
+                    let searchTerm = searchTermForFallback(preferPlainSingleProperNoun: true)
                     // resolveViaSearch now tries Brave first, Wikipedia search second
                     if let resolved = await resolveViaSearch(searchTerm, requested: requested, contextBefore: contextBefore, contextAfter: contextAfter),
                        let resolvedScore = resolved.score,
@@ -120,20 +133,18 @@ enum Wikipedia {
                        resolvedScore >= max(0.62, directScore + 0.05) {
                         // Return immediately only for high-confidence results.
                         // Uncertain results fall through to the AI cross-check.
-                        if let highConfidence = returnIfHighConfidence(resolved) {
-                            return highConfidence
+                        if let accepted = absorbCandidate(resolved) {
+                            return accepted
                         }
-                        storeCandidate(resolved)
                     }
                 }
 
                 if !suspiciousDirect,
                    let accepted = verify(result: direct, requested: requested, contextBefore: contextBefore, contextAfter: contextAfter) {
                     // Very high confidence → return immediately; uncertain → fall through to AI
-                    if let highConfidence = returnIfHighConfidence(accepted) {
-                        return highConfidence
+                    if let accepted = absorbCandidate(accepted) {
+                        return accepted
                     }
-                    storeCandidate(accepted)
                 }
 
                 if direct.status == .disambiguation {
@@ -143,10 +154,9 @@ enum Wikipedia {
                     if let resolved, let accepted = verify(result: resolved, requested: requested, contextBefore: contextBefore, contextAfter: contextAfter) {
                         // High-confidence disambiguation result: return immediately.
                         // Uncertain result: store as candidate and fall through to AI.
-                        if let highConfidence = returnIfHighConfidence(accepted) {
-                            return highConfidence
+                        if let accepted = absorbCandidate(accepted) {
+                            return accepted
                         }
-                        storeCandidate(accepted)
                     }
                     // Don't suppress here — fall through so the outer handler can retry
                     // with a plain search, which is more reliable for single proper nouns
@@ -216,10 +226,9 @@ enum Wikipedia {
                     if let accepted = verify(result: resolved, requested: query, contextBefore: contextBefore, contextAfter: contextAfter) {
                         var rebound = accepted
                         rebound.requested = requested
-                        if let highConfidence = returnIfHighConfidence(rebound) {
-                            return highConfidence
+                        if let accepted = absorbCandidate(rebound) {
+                            return accepted
                         }
-                        storeCandidate(rebound)
                         continue
                     }
                     if resolved.status == .ok {
@@ -245,16 +254,7 @@ enum Wikipedia {
             // For single proper nouns, a plain search is usually better than a context-augmented
             // one after a disambiguation hit. Queries like "Christiania Knut Hamsun Hunger"
             // can bury the canonical alias target ("Oslo") under history/meta pages.
-            let searchTerm: String
-            if hitDisambiguation && isSingleProperNoun {
-                searchTerm = requested
-            } else if hitDisambiguation {
-                searchTerm = contextAugmentedQuery(requested, contextBefore: contextBefore, contextAfter: contextAfter) ?? requested
-            } else {
-                searchTerm = isSingleProperNoun
-                    ? requested
-                    : (contextAugmentedQuery(requested, contextBefore: contextBefore, contextAfter: contextAfter) ?? requested)
-            }
+            let searchTerm = searchTermForFallback(preferPlainSingleProperNoun: true)
             if let resolved = await resolveViaSearch(searchTerm, requested: requested, contextBefore: contextBefore, contextAfter: contextAfter) {
                 // resolveViaSearch scores candidates using the search result title (e.g. "Christiania"),
                 // but stores the fetched summary result whose title may be the redirect target (e.g. "Oslo").
@@ -262,15 +262,13 @@ enum Wikipedia {
                 // score resolveViaSearch already set.
                 // High-confidence → return immediately. Uncertain → store and let AI cross-check.
                 if resolved.status == .ok, let _ = resolved.score {
-                    if let highConfidence = returnIfHighConfidence(resolved) {
-                        return highConfidence
+                    if let accepted = absorbCandidate(resolved) {
+                        return accepted
                     }
-                    storeCandidate(resolved)
                 } else if let accepted = verify(result: resolved, requested: requested, contextBefore: contextBefore, contextAfter: contextAfter) {
-                    if let highConfidence = returnIfHighConfidence(accepted) {
-                        return highConfidence
+                    if let accepted = absorbCandidate(accepted) {
+                        return accepted
                     }
-                    storeCandidate(accepted)
                 } else if resolved.status == .ok {
                     storeCandidate(suppress(result: resolved, reason: "fallback search result scored too low"))
                 }

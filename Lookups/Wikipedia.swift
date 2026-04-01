@@ -103,6 +103,33 @@ enum Wikipedia {
             return contextAugmentedQuery(requested, contextBefore: contextBefore, contextAfter: contextAfter) ?? requested
         }
 
+        func absorbVerified(_ result: WikiResult?, requested overrideRequested: String? = nil) -> WikiResult? {
+            guard let result else { return nil }
+            let verificationRequested = overrideRequested ?? requested
+            guard let verified = verify(result: result, requested: verificationRequested, contextBefore: contextBefore, contextAfter: contextAfter) else {
+                return nil
+            }
+            var normalized = verified
+            normalized.requested = requested
+            return absorbCandidate(normalized)
+        }
+
+        func absorbResolved(_ resolved: WikiResult, requested overrideRequested: String? = nil) -> WikiResult? {
+            if resolved.status == .ok, resolved.score != nil {
+                var normalized = resolved
+                normalized.requested = requested
+                return absorbCandidate(normalized)
+            }
+            return absorbVerified(resolved, requested: overrideRequested)
+        }
+
+        func searchAndAbsorb(_ searchTerm: String, requested overrideRequested: String? = nil) async -> WikiResult? {
+            guard let resolved = await resolveViaSearch(searchTerm, requested: requested, contextBefore: contextBefore, contextAfter: contextAfter) else {
+                return nil
+            }
+            return absorbResolved(resolved, requested: overrideRequested)
+        }
+
         for query in retryQueries(for: requested) {
             if let direct = await fetchSummary(title: query) {
                 if direct.status != .notFound { allBaseNotFound = false }
@@ -139,10 +166,9 @@ enum Wikipedia {
                     }
                 }
 
-                if !suspiciousDirect,
-                   let accepted = verify(result: direct, requested: requested, contextBefore: contextBefore, contextAfter: contextAfter) {
+                if !suspiciousDirect {
                     // Very high confidence → return immediately; uncertain → fall through to AI
-                    if let accepted = absorbCandidate(accepted) {
+                    if let accepted = absorbVerified(direct) {
                         return accepted
                     }
                 }
@@ -150,13 +176,10 @@ enum Wikipedia {
                 if direct.status == .disambiguation {
                     hitDisambiguation = true
                     let searchTerm = contextAugmentedQuery(query, contextBefore: contextBefore, contextAfter: contextAfter) ?? query
-                    let resolved = await resolveViaSearch(searchTerm, requested: requested, contextBefore: contextBefore, contextAfter: contextAfter)
-                    if let resolved, let accepted = verify(result: resolved, requested: requested, contextBefore: contextBefore, contextAfter: contextAfter) {
-                        // High-confidence disambiguation result: return immediately.
-                        // Uncertain result: store as candidate and fall through to AI.
-                        if let accepted = absorbCandidate(accepted) {
-                            return accepted
-                        }
+                    // High-confidence disambiguation result: return immediately.
+                    // Uncertain result: store as candidate and fall through to AI.
+                    if let accepted = await searchAndAbsorb(searchTerm) {
+                        return accepted
                     }
                     // Don't suppress here — fall through so the outer handler can retry
                     // with a plain search, which is more reliable for single proper nouns
@@ -180,14 +203,13 @@ enum Wikipedia {
         if allBaseNotFound || bestDirectScore < 0.40 {
             for query in contextExpandedQueries(for: requested, contextBefore: contextBefore, contextAfter: contextAfter) {
                 if let direct = await fetchSummary(title: query) {
-                    if let accepted = verify(result: direct, requested: requested, contextBefore: contextBefore, contextAfter: contextAfter) {
+                    if let accepted = absorbVerified(direct) {
                         return accepted
                     }
                     if direct.status == .disambiguation {
                         hitDisambiguation = true
                         let searchTerm = contextAugmentedQuery(query, contextBefore: contextBefore, contextAfter: contextAfter) ?? query
-                        if let resolved = await resolveViaSearch(searchTerm, requested: requested, contextBefore: contextBefore, contextAfter: contextAfter),
-                           let accepted = verify(result: resolved, requested: requested, contextBefore: contextBefore, contextAfter: contextAfter) {
+                        if let accepted = await searchAndAbsorb(searchTerm) {
                             return accepted
                         }
                     }
@@ -223,13 +245,8 @@ enum Wikipedia {
                         storeCandidate(candidate)
                         continue
                     }
-                    if let accepted = verify(result: resolved, requested: query, contextBefore: contextBefore, contextAfter: contextAfter) {
-                        var rebound = accepted
-                        rebound.requested = requested
-                        if let accepted = absorbCandidate(rebound) {
-                            return accepted
-                        }
-                        continue
+                    if let accepted = absorbVerified(resolved, requested: query) {
+                        return accepted
                     }
                     if resolved.status == .ok {
                         var suppressed = suppress(result: resolved, reason: "phrase search result scored too low")
@@ -261,14 +278,8 @@ enum Wikipedia {
                 // Re-running verify() here would re-score against the redirect title and fail. Trust the
                 // score resolveViaSearch already set.
                 // High-confidence → return immediately. Uncertain → store and let AI cross-check.
-                if resolved.status == .ok, let _ = resolved.score {
-                    if let accepted = absorbCandidate(resolved) {
-                        return accepted
-                    }
-                } else if let accepted = verify(result: resolved, requested: requested, contextBefore: contextBefore, contextAfter: contextAfter) {
-                    if let accepted = absorbCandidate(accepted) {
-                        return accepted
-                    }
+                if let accepted = absorbResolved(resolved) {
+                    return accepted
                 } else if resolved.status == .ok {
                     storeCandidate(suppress(result: resolved, reason: "fallback search result scored too low"))
                 }

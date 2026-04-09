@@ -42,6 +42,7 @@ final class OverlayController {
     private var targetFrame: CGRect = .zero
     private var sidebarAnchorX: CGFloat = 0
     private var debugModeEnabled = false
+    var windowLabel: String = ""
 
     var currentSize: CGSize { window.contentView?.bounds.size ?? .zero }
     var currentContentSize: CGSize { targetFrame.isEmpty ? currentSize : targetFrame.size }
@@ -149,20 +150,41 @@ final class OverlayController {
     }
 
     private func updateMousePassthrough() {
-        guard layoutMode == .side, !targetFrame.isEmpty else {
-            window.ignoresMouseEvents = true
-            return
-        }
         let mouse = NSEvent.mouseLocation
         let winFrame = window.frame
+
         guard winFrame.contains(mouse) else {
             window.ignoresMouseEvents = true
             return
         }
-        // Content frame ends at targetFrame.width from the window's left edge.
-        // To the right of that is the sidebar gutter — make it interactive.
-        let sidebarStartX = winFrame.minX + targetFrame.width
-        window.ignoresMouseEvents = mouse.x <= sidebarStartX
+
+        if layoutMode == .side, !targetFrame.isEmpty {
+            // Content frame ends at targetFrame.width from the window's left edge.
+            // To the right of that is the sidebar gutter — make it interactive.
+            let sidebarStartX = winFrame.minX + targetFrame.width
+            window.ignoresMouseEvents = mouse.x <= sidebarStartX
+            return
+        }
+
+        if layoutMode == .hover, let hovered {
+            // Allow clicking the tooltip's report button.
+            // Tooltip sits above the hovered highlight, roughly 82px up, ~380px wide.
+            let localX = mouse.x - winFrame.origin.x
+            let localY = (winFrame.height) - (mouse.y - winFrame.origin.y) // flip to SwiftUI coords
+            let tooltipY = max(hovered.rect.minY - 82, 84)
+            let tooltipRect = CGRect(
+                x: hovered.rect.midX - 190,
+                y: tooltipY - 10,
+                width: 380,
+                height: 120
+            )
+            if tooltipRect.contains(CGPoint(x: localX, y: localY)) {
+                window.ignoresMouseEvents = false
+                return
+            }
+        }
+
+        window.ignoresMouseEvents = true
     }
 
     private func pollHover() {
@@ -238,8 +260,27 @@ final class OverlayController {
             sideAnnotations: currentSidebarAnnotations(),
             sideRailWidth: sideRailWidth(for: window.frame),
             sidebarAnchorX: sidebarAnchorX,
-            debugModeEnabled: debugModeEnabled
+            debugModeEnabled: debugModeEnabled,
+            onReportErrata: { [weak self] phrase, annotation in
+                self?.openErrataForm(phrase: phrase, annotation: annotation)
+            }
         )
+    }
+
+    private func openErrataForm(phrase: String, annotation: String?) {
+        var components = URLComponents(string: "https://summa-demo.josephruocco.net/feedback")!
+        var items = [URLQueryItem(name: "phrase", value: phrase)]
+        if !windowLabel.isEmpty {
+            items.append(URLQueryItem(name: "document", value: windowLabel))
+        }
+        if let annotation, !annotation.isEmpty {
+            items.append(URLQueryItem(name: "annotation", value: annotation))
+        }
+        items.append(URLQueryItem(name: "type", value: "wrong-annotation"))
+        components.queryItems = items
+        if let url = components.url {
+            NSWorkspace.shared.open(url)
+        }
     }
 
     private func applyOverlayFrame() {

@@ -135,6 +135,16 @@ struct ContentView: View {
             .buttonStyle(.bordered)
             .disabled(!model.sessionOn || !model.hasExportFolder)
 
+            Button {
+                if let url = URL(string: "https://summa-demo.josephruocco.net/feedback") {
+                    NSWorkspace.shared.open(url)
+                }
+            } label: {
+                Label("Send Feedback", systemImage: "envelope")
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .buttonStyle(.bordered)
+
             Button(role: .none) {
                 NSApp.terminate(nil)
             } label: {

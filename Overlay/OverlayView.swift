@@ -10,6 +10,7 @@ struct OverlayView: View {
     let sideRailWidth: CGFloat
     let sidebarAnchorX: CGFloat
     let debugModeEnabled: Bool
+    var onReportErrata: ((String, String?) -> Void)? = nil
 
     private let palette: [Color] = [
         Color(red: 0.55, green: 0.85, blue: 0.87),
@@ -53,13 +54,13 @@ struct OverlayView: View {
                         sideRailWidth: sideRailWidth,
                         sidebarAnchorX: sidebarAnchorX,
                         debugModeEnabled: debugModeEnabled,
-                        colorForTerm: color(for:)
+                        colorForTerm: color(for:),
+                        onReportErrata: onReportErrata
                     )
                 }
 
                 if layoutMode == .hover, let hovered, let tooltip {
-                    TooltipCard(hovered: hovered, tooltip: tooltip, overlaySize: size)
-                        .allowsHitTesting(false)
+                    TooltipCard(hovered: hovered, tooltip: tooltip, overlaySize: size, onReportErrata: onReportErrata)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -71,6 +72,7 @@ struct OverlayView: View {
         let hovered: HighlightBox
         let tooltip: OverlayTooltip
         let overlaySize: CGSize
+        var onReportErrata: ((String, String?) -> Void)? = nil
 
         var body: some View {
             let boxW = max(220, min(380, overlaySize.width - 24))
@@ -92,6 +94,30 @@ struct OverlayView: View {
                         .fixedSize(horizontal: false, vertical: true)
                 case .wiki(let r):
                     WikiBlock(r: r)
+                }
+
+                HStack {
+                    Button {
+                        let label: String? = {
+                            switch tooltip {
+                            case .wiki(let r): return r.title
+                            case .dictionary(_, let def): return def
+                            case .loading: return nil
+                            }
+                        }()
+                        onReportErrata?(hovered.text, label)
+                    } label: {
+                        HStack(spacing: 3) {
+                            Image(systemName: "flag")
+                                .font(.system(size: 10))
+                            Text("Report")
+                                .font(.system(size: 10))
+                        }
+                        .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+
+                    Spacer()
                 }
             }
             .padding(10)
@@ -117,6 +143,7 @@ struct OverlayView: View {
         let sidebarAnchorX: CGFloat
         let debugModeEnabled: Bool
         let colorForTerm: (String) -> Color
+        var onReportErrata: ((String, String?) -> Void)? = nil
 
         var body: some View {
             let visibleCount = min(sideAnnotations.count, maxVisibleCards)
@@ -148,7 +175,8 @@ struct OverlayView: View {
                         annotation: annotation,
                         color: colorForTerm(annotation.highlight.text),
                         maxHeight: debugModeEnabled ? 196 : 168,
-                        debugModeEnabled: debugModeEnabled
+                        debugModeEnabled: debugModeEnabled,
+                        onReportErrata: onReportErrata
                     )
                 }
 
@@ -195,6 +223,7 @@ struct OverlayView: View {
         let color: Color
         let maxHeight: CGFloat
         let debugModeEnabled: Bool
+        var onReportErrata: ((String, String?) -> Void)? = nil
 
         var body: some View {
             VStack(alignment: .leading, spacing: 6) {
@@ -222,6 +251,20 @@ struct OverlayView: View {
                         .font(.system(size: 12))
                         .foregroundStyle(Color.black.opacity(0.84))
                         .lineLimit(bodyLineLimit)
+
+                    HStack {
+                        Button {
+                            onReportErrata?(annotation.highlight.text, annotationLabel)
+                        } label: {
+                            Image(systemName: "flag")
+                                .font(.system(size: 11))
+                                .foregroundStyle(Color.black.opacity(0.38))
+                        }
+                        .buttonStyle(.plain)
+                        .help("Report wrong annotation")
+                        Spacer()
+                    }
+                    .padding(.top, 2)
                 case .wiki(let result):
                     if let title = result.title, !title.isEmpty, title.caseInsensitiveCompare(annotation.highlight.text) != .orderedSame {
                         Text(title)
@@ -235,9 +278,20 @@ struct OverlayView: View {
                         .foregroundStyle(result.status == .ok ? Color.black.opacity(0.84) : Color.black.opacity(0.58))
                         .lineLimit(bodyLineLimit)
 
-                    if result.status == .ok, let page = result.pageURL, !page.isEmpty, let url = URL(string: page) {
-                        HStack {
-                            Spacer()
+                    HStack {
+                        Button {
+                            onReportErrata?(annotation.highlight.text, annotationLabel)
+                        } label: {
+                            Image(systemName: "flag")
+                                .font(.system(size: 11))
+                                .foregroundStyle(Color.black.opacity(0.38))
+                        }
+                        .buttonStyle(.plain)
+                        .help("Report wrong annotation")
+
+                        Spacer()
+
+                        if result.status == .ok, let page = result.pageURL, !page.isEmpty, let url = URL(string: page) {
                             Button {
                                 NSWorkspace.shared.open(url)
                             } label: {
@@ -247,8 +301,8 @@ struct OverlayView: View {
                             }
                             .buttonStyle(.plain)
                         }
-                        .padding(.top, 2)
                     }
+                    .padding(.top, 2)
 
                     if debugModeEnabled {
                         debugInfo(for: result)
@@ -269,6 +323,14 @@ struct OverlayView: View {
                     .stroke(color.opacity(0.98), lineWidth: 1.4)
             )
             .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        }
+
+        private var annotationLabel: String? {
+            switch annotation.tooltip {
+            case .loading: return nil
+            case .dictionary(_, let def): return def
+            case .wiki(let r): return r.title
+            }
         }
 
         private var bodyLineLimit: Int {

@@ -1,5 +1,13 @@
 import Foundation
 
+// Stubs for symbols provided by GutenbergTest/main.swift in the CLI target.
+// In the app target these provide silent no-ops so Wikipedia.swift compiles.
+private func log(_ msg: String) {}
+
+private enum CommonWordsLoader {
+    nonisolated(unsafe) static let set: Set<String> = []
+}
+
 enum WikiStatus: String, Codable, Sendable {
     case ok
     case notFound

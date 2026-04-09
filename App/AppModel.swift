@@ -122,6 +122,7 @@ final class AppModel: ObservableObject {
 
         selectedWindowID = frontmostID
         currentWindowLabel = windowLabel(win)
+        overlay?.windowLabel = currentWindowLabel
 
         if currentCapturedWindowID != frontmostID {
             status = "Targeting \(currentWindowLabel)."
@@ -229,6 +230,7 @@ final class AppModel: ObservableObject {
             currentCapturedWindowID = id
             selectedWindowID = id
             currentWindowLabel = windowLabel(win)
+            overlay?.windowLabel = currentWindowLabel
             sessionOn = true
             status = "Session running on \(currentWindowLabel)."
         } catch {

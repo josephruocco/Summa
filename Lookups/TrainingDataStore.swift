@@ -3,6 +3,12 @@ import Foundation
 final class TrainingDataStore {
     static let shared = TrainingDataStore()
 
+    private struct CandidateRecord: Codable {
+        let title: String?
+        let pageURL: String?
+        let score: Double?
+    }
+
     private struct SelectionRecord: Codable {
         let timestampISO8601: String
         let phrase: String
@@ -13,6 +19,7 @@ final class TrainingDataStore {
         let selectedPageURL: String?
         let selectedScore: Double?
         let requested: String
+        let candidates: [CandidateRecord]?
     }
 
     private let lock = NSLock()
@@ -22,7 +29,10 @@ final class TrainingDataStore {
         fileURL = Self.makeFileURL()
     }
 
-    func record(highlight: HighlightBox, windowLabel: String, selected: WikiResult) {
+    func record(highlight: HighlightBox, windowLabel: String, selected: WikiResult, allCandidates: [WikiResult] = []) {
+        let candidateRecords: [CandidateRecord]? = allCandidates.isEmpty ? nil : allCandidates.map {
+            CandidateRecord(title: $0.title, pageURL: $0.pageURL, score: $0.score)
+        }
         let record = SelectionRecord(
             timestampISO8601: ISO8601DateFormatter().string(from: Date()),
             phrase: highlight.text,
@@ -32,7 +42,8 @@ final class TrainingDataStore {
             selectedTitle: selected.title,
             selectedPageURL: selected.pageURL,
             selectedScore: selected.score,
-            requested: selected.requested
+            requested: selected.requested,
+            candidates: candidateRecords
         )
         append(record)
     }

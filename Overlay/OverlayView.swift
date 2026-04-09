@@ -11,7 +11,7 @@ struct OverlayView: View {
     let sidebarAnchorX: CGFloat
     let debugModeEnabled: Bool
     var onReportErrata: ((String, String?) -> Void)? = nil
-    var onCandidateSelected: ((HighlightBox, WikiResult) -> Void)? = nil
+    var onCandidateSelected: ((HighlightBox, WikiResult, [WikiResult]) -> Void)? = nil
 
     private let palette: [Color] = [
         Color(red: 0.55, green: 0.85, blue: 0.87),
@@ -81,7 +81,7 @@ struct OverlayView: View {
         let tooltip: OverlayTooltip
         let overlaySize: CGSize
         var onReportErrata: ((String, String?) -> Void)? = nil
-        var onCandidateSelected: ((HighlightBox, WikiResult) -> Void)? = nil
+        var onCandidateSelected: ((HighlightBox, WikiResult, [WikiResult]) -> Void)? = nil
 
         var body: some View {
             let boxW = max(220, min(380, overlaySize.width - 24))
@@ -108,7 +108,10 @@ struct OverlayView: View {
                         phrase: hovered.text,
                         candidateSet: set,
                         onSelect: { selected in
-                            onCandidateSelected?(hovered, selected)
+                            onCandidateSelected?(hovered, selected, set.candidates)
+                        },
+                        onDismiss: {
+                            onCandidateSelected?(hovered, WikiResult(status: .suppressed, requested: set.requested), set.candidates)
                         }
                     )
                 }
@@ -162,7 +165,7 @@ struct OverlayView: View {
         let debugModeEnabled: Bool
         let colorForTerm: (String) -> Color
         var onReportErrata: ((String, String?) -> Void)? = nil
-        var onCandidateSelected: ((HighlightBox, WikiResult) -> Void)? = nil
+        var onCandidateSelected: ((HighlightBox, WikiResult, [WikiResult]) -> Void)? = nil
 
         var body: some View {
             let visibleCount = min(sideAnnotations.count, maxVisibleCards)
@@ -244,7 +247,7 @@ struct OverlayView: View {
         let maxHeight: CGFloat
         let debugModeEnabled: Bool
         var onReportErrata: ((String, String?) -> Void)? = nil
-        var onCandidateSelected: ((HighlightBox, WikiResult) -> Void)? = nil
+        var onCandidateSelected: ((HighlightBox, WikiResult, [WikiResult]) -> Void)? = nil
 
         var body: some View {
             VStack(alignment: .leading, spacing: 6) {
@@ -333,7 +336,10 @@ struct OverlayView: View {
                         phrase: annotation.highlight.text,
                         candidateSet: candidateSet,
                         onSelect: { selected in
-                            onCandidateSelected?(annotation.highlight, selected)
+                            onCandidateSelected?(annotation.highlight, selected, candidateSet.candidates)
+                        },
+                        onDismiss: {
+                            onCandidateSelected?(annotation.highlight, WikiResult(status: .suppressed, requested: candidateSet.requested), candidateSet.candidates)
                         }
                     )
                 }
@@ -509,22 +515,18 @@ struct OverlayView: View {
         let phrase: String
         let candidateSet: WikiCandidateSet
         let onSelect: (WikiResult) -> Void
+        var onDismiss: (() -> Void)? = nil
 
         var body: some View {
             VStack(alignment: .leading, spacing: 8) {
-                Text("Pick the right meaning")
+                Text("Which meaning?")
                     .font(.system(size: 12, weight: .semibold))
 
-                Text("We found a few plausible matches for \"\(phrase)\".")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                ForEach(Array(candidateSet.candidates.enumerated()), id: \.offset) { _, candidate in
+                ForEach(candidateSet.candidates, id: \.pageURL) { candidate in
                     Button {
                         onSelect(candidate)
                     } label: {
-                        VStack(alignment: .leading, spacing: 4) {
+                        VStack(alignment: .leading, spacing: 3) {
                             Text(candidate.title ?? candidate.requested)
                                 .font(.system(size: 12, weight: .medium))
                                 .foregroundStyle(.primary)
@@ -539,7 +541,7 @@ struct OverlayView: View {
                             }
                         }
                         .padding(.horizontal, 10)
-                        .padding(.vertical, 8)
+                        .padding(.vertical, 7)
                         .background(
                             RoundedRectangle(cornerRadius: 8, style: .continuous)
                                 .fill(Color.white.opacity(0.72))
@@ -551,6 +553,15 @@ struct OverlayView: View {
                     }
                     .buttonStyle(.plain)
                 }
+
+                Button {
+                    onDismiss?()
+                } label: {
+                    Text("None of these")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
             }
         }
 

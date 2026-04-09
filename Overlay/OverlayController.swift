@@ -264,8 +264,8 @@ final class OverlayController {
             onReportErrata: { [weak self] phrase, annotation in
                 self?.openErrataForm(phrase: phrase, annotation: annotation)
             },
-            onCandidateSelected: { [weak self] highlight, selected in
-                self?.selectCandidate(selected, forHighlight: highlight)
+            onCandidateSelected: { [weak self] highlight, selected, allCandidates in
+                self?.selectCandidate(selected, forHighlight: highlight, allCandidates: allCandidates)
             }
         )
     }
@@ -425,12 +425,20 @@ final class OverlayController {
         }
     }
 
-    func selectCandidate(_ selected: WikiResult, forHighlight h: HighlightBox) {
+    func selectCandidate(_ selected: WikiResult, forHighlight h: HighlightBox, allCandidates: [WikiResult] = []) {
         let key = lookupKey(for: h)
         let sKey = sidebarKey(for: h)
-        LookupCache.shared.setWikipedia(key, selected)
-        LookupCache.shared.clearMultiOption(key)
-        TrainingDataStore.shared.record(highlight: h, windowLabel: windowLabel, selected: selected)
+        LookupCache.shared.setWikipedia(key, selected) // also clears multiOption for this key
+        TrainingDataStore.shared.record(highlight: h, windowLabel: windowLabel, selected: selected, allCandidates: allCandidates)
+
+        if selected.status == .suppressed {
+            suppressedLookupKeys.insert(key)
+            sideTooltips.removeValue(forKey: sKey)
+            hovered = nil
+            render(hovered: nil, tooltip: nil)
+            return
+        }
+
         if layoutMode == .side {
             sideTooltips[sKey] = .wiki(selected)
             render(hovered: nil, tooltip: nil)

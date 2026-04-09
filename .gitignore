@@ -3,6 +3,7 @@
 
 # ---- Xcode / Swift ----
 DerivedData/
+.deriveddata/
 .build/
 *.xcuserdata/
 *.xcuserstate

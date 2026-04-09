@@ -11,6 +11,7 @@ struct OverlayView: View {
     let sidebarAnchorX: CGFloat
     let debugModeEnabled: Bool
     var onReportErrata: ((String, String?) -> Void)? = nil
+    var onCandidateSelected: ((HighlightBox, WikiResult) -> Void)? = nil
 
     private let palette: [Color] = [
         Color(red: 0.55, green: 0.85, blue: 0.87),
@@ -55,12 +56,19 @@ struct OverlayView: View {
                         sidebarAnchorX: sidebarAnchorX,
                         debugModeEnabled: debugModeEnabled,
                         colorForTerm: color(for:),
-                        onReportErrata: onReportErrata
+                        onReportErrata: onReportErrata,
+                        onCandidateSelected: onCandidateSelected
                     )
                 }
 
                 if layoutMode == .hover, let hovered, let tooltip {
-                    TooltipCard(hovered: hovered, tooltip: tooltip, overlaySize: size, onReportErrata: onReportErrata)
+                    TooltipCard(
+                        hovered: hovered,
+                        tooltip: tooltip,
+                        overlaySize: size,
+                        onReportErrata: onReportErrata,
+                        onCandidateSelected: onCandidateSelected
+                    )
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -73,6 +81,7 @@ struct OverlayView: View {
         let tooltip: OverlayTooltip
         let overlaySize: CGSize
         var onReportErrata: ((String, String?) -> Void)? = nil
+        var onCandidateSelected: ((HighlightBox, WikiResult) -> Void)? = nil
 
         var body: some View {
             let boxW = max(220, min(380, overlaySize.width - 24))
@@ -94,6 +103,14 @@ struct OverlayView: View {
                         .fixedSize(horizontal: false, vertical: true)
                 case .wiki(let r):
                     WikiBlock(r: r)
+                case .multiOption(let set):
+                    MultiOptionBlock(
+                        phrase: hovered.text,
+                        candidateSet: set,
+                        onSelect: { selected in
+                            onCandidateSelected?(hovered, selected)
+                        }
+                    )
                 }
 
                 HStack {
@@ -103,6 +120,7 @@ struct OverlayView: View {
                             case .wiki(let r): return r.title
                             case .dictionary(_, let def): return def
                             case .loading: return nil
+                            case .multiOption: return nil
                             }
                         }()
                         onReportErrata?(hovered.text, label)
@@ -144,6 +162,7 @@ struct OverlayView: View {
         let debugModeEnabled: Bool
         let colorForTerm: (String) -> Color
         var onReportErrata: ((String, String?) -> Void)? = nil
+        var onCandidateSelected: ((HighlightBox, WikiResult) -> Void)? = nil
 
         var body: some View {
             let visibleCount = min(sideAnnotations.count, maxVisibleCards)
@@ -176,7 +195,8 @@ struct OverlayView: View {
                         color: colorForTerm(annotation.highlight.text),
                         maxHeight: debugModeEnabled ? 196 : 168,
                         debugModeEnabled: debugModeEnabled,
-                        onReportErrata: onReportErrata
+                        onReportErrata: onReportErrata,
+                        onCandidateSelected: onCandidateSelected
                     )
                 }
 
@@ -224,6 +244,7 @@ struct OverlayView: View {
         let maxHeight: CGFloat
         let debugModeEnabled: Bool
         var onReportErrata: ((String, String?) -> Void)? = nil
+        var onCandidateSelected: ((HighlightBox, WikiResult) -> Void)? = nil
 
         var body: some View {
             VStack(alignment: .leading, spacing: 6) {
@@ -307,6 +328,14 @@ struct OverlayView: View {
                     if debugModeEnabled {
                         debugInfo(for: result)
                     }
+                case .multiOption(let candidateSet):
+                    MultiOptionBlock(
+                        phrase: annotation.highlight.text,
+                        candidateSet: candidateSet,
+                        onSelect: { selected in
+                            onCandidateSelected?(annotation.highlight, selected)
+                        }
+                    )
                 }
             }
             .frame(maxWidth: .infinity, alignment: .topLeading)
@@ -330,6 +359,7 @@ struct OverlayView: View {
             case .loading: return nil
             case .dictionary(_, let def): return def
             case .wiki(let r): return r.title
+            case .multiOption: return nil
             }
         }
 
@@ -463,6 +493,64 @@ struct OverlayView: View {
                 return firstSentence(r.extract) ?? "Wikipedia lookup failed."
             case .suppressed:
                 return firstSentence(r.extract) ?? "Suppressed low-confidence match."
+            }
+        }
+
+        private func firstSentence(_ text: String?) -> String? {
+            guard let text, !text.isEmpty else { return nil }
+            if let range = text.range(of: #"[.!?](?=\s|$)"#, options: .regularExpression) {
+                return String(text[text.startIndex..<range.upperBound])
+            }
+            return text
+        }
+    }
+
+    private struct MultiOptionBlock: View {
+        let phrase: String
+        let candidateSet: WikiCandidateSet
+        let onSelect: (WikiResult) -> Void
+
+        var body: some View {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Pick the right meaning")
+                    .font(.system(size: 12, weight: .semibold))
+
+                Text("We found a few plausible matches for \"\(phrase)\".")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                ForEach(Array(candidateSet.candidates.enumerated()), id: \.offset) { _, candidate in
+                    Button {
+                        onSelect(candidate)
+                    } label: {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(candidate.title ?? candidate.requested)
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundStyle(.primary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+
+                            if let summary = firstSentence(candidate.extract), !summary.isEmpty {
+                                Text(summary)
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(2)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 8)
+                        .background(
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .fill(Color.white.opacity(0.72))
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .stroke(Color.black.opacity(0.08), lineWidth: 1)
+                        )
+                    }
+                    .buttonStyle(.plain)
+                }
             }
         }
 

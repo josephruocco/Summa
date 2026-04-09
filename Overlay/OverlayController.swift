@@ -263,6 +263,9 @@ final class OverlayController {
             debugModeEnabled: debugModeEnabled,
             onReportErrata: { [weak self] phrase, annotation in
                 self?.openErrataForm(phrase: phrase, annotation: annotation)
+            },
+            onCandidateSelected: { [weak self] highlight, selected in
+                self?.selectCandidate(selected, forHighlight: highlight)
             }
         )
     }
@@ -403,13 +406,37 @@ final class OverlayController {
             return .dictionary(term: text, definition: def)
         }
 
+        if let cached = LookupCache.shared.multiOption(key) {
+            return .multiOption(cached)
+        }
+
         if let cached = LookupCache.shared.wikipedia(key) {
             return cached.status == .ok ? .wiki(cached) : nil
         }
 
-        let wiki = await Wikipedia.lookup(text, contextBefore: h.contextBefore, contextAfter: h.contextAfter)
-        LookupCache.shared.setWikipedia(key, wiki)
-        return wiki.status == .ok ? .wiki(wiki) : nil
+        let lookupResult = await Wikipedia.lookupWithCandidates(text, contextBefore: h.contextBefore, contextAfter: h.contextAfter)
+        switch lookupResult {
+        case .single(let wiki):
+            LookupCache.shared.setWikipedia(key, wiki)
+            return wiki.status == .ok ? .wiki(wiki) : nil
+        case .ambiguous(let candidateSet):
+            LookupCache.shared.setMultiOption(key, candidateSet)
+            return .multiOption(candidateSet)
+        }
+    }
+
+    func selectCandidate(_ selected: WikiResult, forHighlight h: HighlightBox) {
+        let key = lookupKey(for: h)
+        let sKey = sidebarKey(for: h)
+        LookupCache.shared.setWikipedia(key, selected)
+        LookupCache.shared.clearMultiOption(key)
+        TrainingDataStore.shared.record(highlight: h, windowLabel: windowLabel, selected: selected)
+        if layoutMode == .side {
+            sideTooltips[sKey] = .wiki(selected)
+            render(hovered: nil, tooltip: nil)
+        } else {
+            render(hovered: hovered, tooltip: .wiki(selected))
+        }
     }
 
     private func sidebarKey(for highlight: HighlightBox) -> String {
@@ -453,4 +480,5 @@ enum OverlayTooltip: Equatable {
     case loading
     case dictionary(term: String, definition: String)
     case wiki(WikiResult)
+    case multiOption(WikiCandidateSet)
 }

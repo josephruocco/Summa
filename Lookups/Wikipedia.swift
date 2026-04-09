@@ -27,7 +27,58 @@ struct WikiResult: Codable, Sendable, Hashable {
     var score: Double?
 }
 
+struct WikiCandidateSet: Codable, Sendable, Hashable {
+    let requested: String
+    let candidates: [WikiResult]
+}
+
+enum WikiLookupResult: Sendable {
+    case single(WikiResult)
+    case ambiguous(WikiCandidateSet)
+}
+
 enum Wikipedia {
+    // Candidate pool: accumulates scored results during a lookup for multi-option UI.
+    // Reset at the start of each lookupWithCandidates() call.
+    private nonisolated(unsafe) static var candidatePool: [WikiResult] = []
+
+    private static func recordCandidate(_ result: WikiResult) {
+        guard result.status == .ok, let score = result.score, score >= 0.45 else { return }
+        // Deduplicate by title
+        let norm = normalize(result.title ?? "")
+        if !candidatePool.contains(where: { normalize($0.title ?? "") == norm }) {
+            candidatePool.append(result)
+        }
+    }
+
+    static func lookupWithCandidates(
+        _ term: String,
+        contextBefore: String? = nil,
+        contextAfter: String? = nil,
+        bookContext: String? = nil
+    ) async -> WikiLookupResult {
+        candidatePool = []
+        let result = await lookup(term, contextBefore: contextBefore, contextAfter: contextAfter, bookContext: bookContext)
+
+        // If the result is confident or failed, return as single
+        let score = result.score ?? 0
+        if result.status != .ok || score >= 0.65 || score < 0.50 {
+            return .single(result)
+        }
+
+        // Score is in [0.50, 0.65) — uncertain. Check if we have multiple candidates.
+        let viable = candidatePool
+            .filter { ($0.score ?? 0) >= 0.45 }
+            .sorted { ($0.score ?? 0) > ($1.score ?? 0) }
+
+        let topCandidates = Array(viable.prefix(3))
+        if topCandidates.count >= 2 {
+            return .ambiguous(WikiCandidateSet(requested: term, candidates: topCandidates))
+        }
+
+        return .single(result)
+    }
+
     // In-memory negative cache: terms confirmed to have no Wikipedia article are skipped
     // on subsequent page scans without re-querying. Keyed on normalized term.
     private nonisolated(unsafe) static var notFoundCache: Set<String> = []
@@ -76,7 +127,11 @@ enum Wikipedia {
         var hitDisambiguation = false
         var allBaseNotFound = true
         var bestDirectScore: Double = 0.0
-        var bestSuppressedResult: WikiResult? = nil
+        var bestSuppressedResult: WikiResult? = nil {
+            didSet {
+                if let r = bestSuppressedResult, r.status == .ok { recordCandidate(r) }
+            }
+        }
         var hitSuspiciousDirect = false
 
         for query in retryQueries(for: requested) {
@@ -597,6 +652,7 @@ enum Wikipedia {
                 enriched.requested = requested
                 enriched.score = score
                 resolved.append((enriched, score))
+                recordCandidate(enriched)
             }
 
             guard !resolved.isEmpty else {
@@ -771,6 +827,7 @@ enum Wikipedia {
             enriched.requested = requested
             enriched.score = score
             resolvedCandidates.append((enriched, score, candidate.snippet))
+            recordCandidate(enriched)
         }
         guard !resolvedCandidates.isEmpty else { return nil }
 

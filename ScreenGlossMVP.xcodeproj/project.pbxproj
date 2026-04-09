@@ -10,6 +10,7 @@
 		D9011FF52F2D66E1000B8600 /* OverlayState.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9011FF42F2D66E1000B8600 /* OverlayState.swift */; };
 		D9011FF92F2D6810000B8600 /* LookupCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9011FF82F2D6810000B8600 /* LookupCache.swift */; };
 		D9011FFB2F2D6823000B8600 /* Wikipedia.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9011FFA2F2D6823000B8600 /* Wikipedia.swift */; };
+		D9A0B1012F58A00100AA1001 /* TrainingDataStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9A0B1002F58A00100AA1001 /* TrainingDataStore.swift */; };
 
 		D919C0492F4E543000853E78 /* CatalogRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = D919C0482F4E543000853E78 /* CatalogRecorder.swift */; };
 		D919C04B2F4E5A2D00853E78 /* Geometry.swift in Sources */ = {isa = PBXBuildFile; fileRef = D919C04A2F4E5A2D00853E78 /* Geometry.swift */; };
@@ -34,6 +35,7 @@
 		D9011FF42F2D66E1000B8600 /* OverlayState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OverlayState.swift; sourceTree = "<group>"; };
 		D9011FF82F2D6810000B8600 /* LookupCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LookupCache.swift; sourceTree = "<group>"; };
 		D9011FFA2F2D6823000B8600 /* Wikipedia.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Wikipedia.swift; sourceTree = "<group>"; };
+		D9A0B1002F58A00100AA1001 /* TrainingDataStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrainingDataStore.swift; sourceTree = "<group>"; };
 
 		D919C0482F4E543000853E78 /* CatalogRecorder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CatalogRecorder.swift; sourceTree = "<group>"; };
 		D919C04A2F4E5A2D00853E78 /* Geometry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Geometry.swift; sourceTree = "<group>"; };
@@ -112,6 +114,7 @@
 
 				D9F3470F2F2D4197001946B2 /* Lookups.swift */,
 				D9011FF82F2D6810000B8600 /* LookupCache.swift */,
+				D9A0B1002F58A00100AA1001 /* TrainingDataStore.swift */,
 				D9011FFA2F2D6823000B8600 /* Wikipedia.swift */,
 			);
 			path = Lookups;
@@ -257,6 +260,7 @@
 				D919C04B2F4E5A2D00853E78 /* Geometry.swift in Sources */,
 				D9F347182F2D41CA001946B2 /* OverlayView.swift in Sources */,
 				D9011FF92F2D6810000B8600 /* LookupCache.swift in Sources */,
+				D9A0B1012F58A00100AA1001 /* TrainingDataStore.swift in Sources */,
 				D9F347082F2D417B001946B2 /* CaptureSession.swift in Sources */,
 				D9CCFEE32F300A1200031E62 /* CommonWords.swift in Sources */,
 				D97D81CD2F3C21B600933D15 /* ScrollActivityMonitor.swift in Sources */,

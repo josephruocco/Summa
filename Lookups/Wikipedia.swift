@@ -74,6 +74,11 @@ enum Wikipedia {
         activeCollector?.add(result)
     }
 
+    // Score band that triggers the multi-option picker. Tuned wide enough to
+    // catch genuinely-uncertain matches without nagging users on confident hits.
+    private static let ambiguousBandLow: Double = 0.50
+    private static let ambiguousBandHigh: Double = 0.72
+
     static func lookupWithCandidates(
         _ term: String,
         contextBefore: String? = nil,
@@ -82,18 +87,44 @@ enum Wikipedia {
     ) async -> WikiLookupResult {
         let collector = WikiCandidateCollector()
         let result = await Self.$activeCollector.withValue(collector) {
-            await lookup(term, contextBefore: contextBefore, contextAfter: contextAfter, bookContext: bookContext)
+            let r = await lookup(term, contextBefore: contextBefore, contextAfter: contextAfter, bookContext: bookContext)
+            // Always seed the collector with the primary result so it can be
+            // one of the options in the picker even when `lookup()` returned
+            // immediately via the direct-page path and never touched search.
+            if r.status == .ok { recordCandidate(r) }
+
+            // When the primary score is in the uncertain band but the
+            // collector didn't accumulate a second option (i.e. search
+            // resolution was never invoked), actively run a supplementary
+            // search pass purely to surface alternatives. Side effect only:
+            // the returned value is discarded; what we care about is that
+            // resolveViaSearch calls recordCandidate() on every page it
+            // scores.
+            let score = r.score ?? 0
+            if r.status == .ok,
+               score >= ambiguousBandLow,
+               score < ambiguousBandHigh,
+               collector.snapshot().count < 2 {
+                _ = await resolveViaSearch(
+                    term,
+                    requested: term,
+                    contextBefore: contextBefore,
+                    contextAfter: contextAfter
+                )
+            }
+            return r
         }
 
-        // If the result is confident or failed, return as single
+        // If the primary result failed or was very confident, return as single.
         let score = result.score ?? 0
-        if result.status != .ok || score >= 0.65 || score < 0.50 {
+        if result.status != .ok || score >= ambiguousBandHigh || score < ambiguousBandLow {
             return .single(result)
         }
 
-        // Score is in [0.50, 0.65) — uncertain. Check if we have multiple candidates.
+        // Primary is in the uncertain band. Assemble the picker from the
+        // collector's pool, making sure the primary result is included.
         let viable = collector.snapshot()
-            .filter { ($0.score ?? 0) >= 0.45 }
+            .filter { ($0.score ?? 0) >= 0.40 }
             .sorted { ($0.score ?? 0) > ($1.score ?? 0) }
 
         let topCandidates = Array(viable.prefix(3))

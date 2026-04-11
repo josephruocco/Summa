@@ -227,7 +227,26 @@ final class OverlayController {
                     await self.showToolTip(for: hit)
                 }
             }
-        } else if hovered != nil {
+            return
+        }
+
+        // Mouse is NOT over a highlight. Before dismissing the tooltip, keep
+        // it visible if the mouse is now over the tooltip card itself — this
+        // is what lets users actually reach the Report button, pick a
+        // candidate in the multi-option picker, etc. We also tolerate a small
+        // "gap corridor" above the highlight for the trip from highlight to
+        // card.
+        if hovered != nil {
+            let overTooltip: Bool = {
+                guard let tooltipFrame else { return false }
+                // tooltipFrame is in SwiftUI top-left overlay coordinates —
+                // same space as localSwiftUI. Expand slightly to tolerate the
+                // gap between the highlight and the card.
+                return tooltipFrame.insetBy(dx: -6, dy: -6).contains(localSwiftUI)
+            }()
+            if overTooltip {
+                return // stay hovered, keep the card visible
+            }
             hovered = nil
             hoverTask?.cancel()
             hoverTask = nil

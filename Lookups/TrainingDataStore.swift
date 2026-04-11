@@ -79,6 +79,36 @@ final class TrainingDataStore {
         return candidates.map { CandidateRecord(title: $0.title, pageURL: $0.pageURL, score: $0.score) }
     }
 
+    // MARK: - Management (user-facing)
+
+    /// On-disk location of the training log, if available. Useful for
+    /// "Reveal in Finder" commands so users can inspect or export what's
+    /// being recorded locally.
+    var storageFileURL: URL? { fileURL }
+
+    /// True when the training log file exists and has any content. Callers
+    /// can use this to gate Reveal / Clear actions.
+    var hasData: Bool {
+        guard let fileURL else { return false }
+        var isDir: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: fileURL.path, isDirectory: &isDir), !isDir.boolValue else {
+            return false
+        }
+        let attrs = try? FileManager.default.attributesOfItem(atPath: fileURL.path)
+        let size = (attrs?[.size] as? NSNumber)?.int64Value ?? 0
+        return size > 0
+    }
+
+    /// Delete the local training log. No-op if the file doesn't exist.
+    /// All mutations go through the same lock as append() to avoid racing
+    /// against a concurrent write.
+    func clearAll() {
+        guard let fileURL else { return }
+        lock.lock()
+        defer { lock.unlock() }
+        try? FileManager.default.removeItem(at: fileURL)
+    }
+
     private func append(_ record: SelectionRecord) {
         guard let fileURL else { return }
         guard let data = try? JSONEncoder().encode(record),

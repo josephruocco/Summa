@@ -42,6 +42,10 @@ final class OverlayController {
     private var targetFrame: CGRect = .zero
     private var sidebarAnchorX: CGFloat = 0
     private var debugModeEnabled = false
+    // Last rendered tooltip frame, reported via SwiftUI preference key. Used
+    // for mouse hit-testing so we don't have to hardcode tooltip dimensions
+    // (multi-option pickers have variable height).
+    private var tooltipFrame: CGRect? = nil
     var windowLabel: String = ""
 
     var currentSize: CGSize { window.contentView?.bounds.size ?? .zero }
@@ -166,19 +170,14 @@ final class OverlayController {
             return
         }
 
-        if layoutMode == .hover, let hovered {
-            // Allow clicking the tooltip's report button.
-            // Tooltip sits above the hovered highlight, roughly 82px up, ~380px wide.
+        if layoutMode == .hover, hovered != nil, let tooltipFrame {
+            // Use the tooltip's actual rendered frame (reported via
+            // TooltipFramePreferenceKey) so hit-testing adapts to variable
+            // content height — e.g. multi-option pickers are taller than
+            // single wiki/dictionary cards.
             let localX = mouse.x - winFrame.origin.x
-            let localY = (winFrame.height) - (mouse.y - winFrame.origin.y) // flip to SwiftUI coords
-            let tooltipY = max(hovered.rect.minY - 82, 84)
-            let tooltipRect = CGRect(
-                x: hovered.rect.midX - 190,
-                y: tooltipY - 10,
-                width: 380,
-                height: 120
-            )
-            if tooltipRect.contains(CGPoint(x: localX, y: localY)) {
+            let localY = winFrame.height - (mouse.y - winFrame.origin.y) // flip to SwiftUI top-left coords
+            if tooltipFrame.contains(CGPoint(x: localX, y: localY)) {
                 window.ignoresMouseEvents = false
                 return
             }
@@ -266,18 +265,37 @@ final class OverlayController {
             },
             onCandidateSelected: { [weak self] highlight, selected, allCandidates in
                 self?.selectCandidate(selected, forHighlight: highlight, allCandidates: allCandidates)
+            },
+            onCandidatesDismissed: { [weak self] highlight, requested, allCandidates in
+                self?.dismissCandidates(forHighlight: highlight, requested: requested, allCandidates: allCandidates)
+            },
+            onTooltipFrameChanged: { [weak self] frame in
+                guard let self else { return }
+                self.tooltipFrame = frame
+                self.updateMousePassthrough()
             }
         )
     }
 
     private func openErrataForm(phrase: String, annotation: String?) {
+        // Browsers reliably accept URLs up to about 2,000 characters. Annotations
+        // can contain full Wikipedia extracts or multi-sentence definitions, which
+        // easily blows past that and would cause the browser to reject or truncate
+        // the URL. Clamp each field individually and rely on URLComponents /
+        // URLQueryItem to percent-encode.
+        func clamp(_ s: String, _ maxChars: Int) -> String {
+            let trimmed = s.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard trimmed.count > maxChars else { return trimmed }
+            return String(trimmed.prefix(maxChars - 1)) + "\u{2026}" // ellipsis
+        }
+
         var components = URLComponents(string: "https://summa-demo.josephruocco.net/feedback")!
-        var items = [URLQueryItem(name: "phrase", value: phrase)]
+        var items = [URLQueryItem(name: "phrase", value: clamp(phrase, 200))]
         if !windowLabel.isEmpty {
-            items.append(URLQueryItem(name: "document", value: windowLabel))
+            items.append(URLQueryItem(name: "document", value: clamp(windowLabel, 200)))
         }
         if let annotation, !annotation.isEmpty {
-            items.append(URLQueryItem(name: "annotation", value: annotation))
+            items.append(URLQueryItem(name: "annotation", value: clamp(annotation, 600)))
         }
         items.append(URLQueryItem(name: "type", value: "wrong-annotation"))
         components.queryItems = items
@@ -429,15 +447,12 @@ final class OverlayController {
         let key = lookupKey(for: h)
         let sKey = sidebarKey(for: h)
         LookupCache.shared.setWikipedia(key, selected) // also clears multiOption for this key
-        TrainingDataStore.shared.record(highlight: h, windowLabel: windowLabel, selected: selected, allCandidates: allCandidates)
-
-        if selected.status == .suppressed {
-            suppressedLookupKeys.insert(key)
-            sideTooltips.removeValue(forKey: sKey)
-            hovered = nil
-            render(hovered: nil, tooltip: nil)
-            return
-        }
+        TrainingDataStore.shared.recordSelection(
+            highlight: h,
+            windowLabel: windowLabel,
+            selected: selected,
+            allCandidates: allCandidates
+        )
 
         if layoutMode == .side {
             sideTooltips[sKey] = .wiki(selected)
@@ -445,6 +460,22 @@ final class OverlayController {
         } else {
             render(hovered: hovered, tooltip: .wiki(selected))
         }
+    }
+
+    func dismissCandidates(forHighlight h: HighlightBox, requested: String, allCandidates: [WikiResult]) {
+        let key = lookupKey(for: h)
+        let sKey = sidebarKey(for: h)
+        LookupCache.shared.clearMultiOption(key)
+        suppressedLookupKeys.insert(key)
+        sideTooltips.removeValue(forKey: sKey)
+        hovered = nil
+        TrainingDataStore.shared.recordDismissal(
+            highlight: h,
+            windowLabel: windowLabel,
+            requested: requested,
+            allCandidates: allCandidates
+        )
+        render(hovered: nil, tooltip: nil)
     }
 
     private func sidebarKey(for highlight: HighlightBox) -> String {

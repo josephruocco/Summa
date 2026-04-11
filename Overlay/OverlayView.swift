@@ -1,5 +1,15 @@
 import SwiftUI
 
+// Reports the hover tooltip's actual rendered frame (in the overlay's
+// top-left coordinate space) up to OverlayController, so hit-testing
+// doesn't have to hardcode a size. A nil value means no tooltip.
+struct TooltipFramePreferenceKey: PreferenceKey {
+    static var defaultValue: CGRect? = nil
+    static func reduce(value: inout CGRect?, nextValue: () -> CGRect?) {
+        if let next = nextValue() { value = next }
+    }
+}
+
 struct OverlayView: View {
     let vocab: [HighlightBox]
     let refs: [HighlightBox]
@@ -12,6 +22,10 @@ struct OverlayView: View {
     let debugModeEnabled: Bool
     var onReportErrata: ((String, String?) -> Void)? = nil
     var onCandidateSelected: ((HighlightBox, WikiResult, [WikiResult]) -> Void)? = nil
+    var onCandidatesDismissed: ((HighlightBox, String, [WikiResult]) -> Void)? = nil
+    var onTooltipFrameChanged: ((CGRect?) -> Void)? = nil
+
+    static let overlayCoordinateSpace: String = "overlay"
 
     private let palette: [Color] = [
         Color(red: 0.55, green: 0.85, blue: 0.87),
@@ -57,7 +71,8 @@ struct OverlayView: View {
                         debugModeEnabled: debugModeEnabled,
                         colorForTerm: color(for:),
                         onReportErrata: onReportErrata,
-                        onCandidateSelected: onCandidateSelected
+                        onCandidateSelected: onCandidateSelected,
+                        onCandidatesDismissed: onCandidatesDismissed
                     )
                 }
 
@@ -67,12 +82,23 @@ struct OverlayView: View {
                         tooltip: tooltip,
                         overlaySize: size,
                         onReportErrata: onReportErrata,
-                        onCandidateSelected: onCandidateSelected
+                        onCandidateSelected: onCandidateSelected,
+                        onCandidatesDismissed: onCandidatesDismissed
                     )
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Color.clear)
+            .coordinateSpace(name: Self.overlayCoordinateSpace)
+            .onPreferenceChange(TooltipFramePreferenceKey.self) { frame in
+                // Clear when there's no active hover tooltip so the controller
+                // knows the hit-test region is gone.
+                if layoutMode != .hover || hovered == nil || tooltip == nil {
+                    onTooltipFrameChanged?(nil)
+                } else {
+                    onTooltipFrameChanged?(frame)
+                }
+            }
         }
     }
 
@@ -82,6 +108,7 @@ struct OverlayView: View {
         let overlaySize: CGSize
         var onReportErrata: ((String, String?) -> Void)? = nil
         var onCandidateSelected: ((HighlightBox, WikiResult, [WikiResult]) -> Void)? = nil
+        var onCandidatesDismissed: ((HighlightBox, String, [WikiResult]) -> Void)? = nil
 
         var body: some View {
             let boxW = max(220, min(380, overlaySize.width - 24))
@@ -111,7 +138,7 @@ struct OverlayView: View {
                             onCandidateSelected?(hovered, selected, set.candidates)
                         },
                         onDismiss: {
-                            onCandidateSelected?(hovered, WikiResult(status: .suppressed, requested: set.requested), set.candidates)
+                            onCandidatesDismissed?(hovered, set.requested, set.candidates)
                         }
                     )
                 }
@@ -149,6 +176,19 @@ struct OverlayView: View {
                     .stroke(Color.white.opacity(0.25), lineWidth: 1)
             )
             .frame(width: boxW, alignment: .leading)
+            .background(
+                // Report the tooltip's actual rendered frame (variable height
+                // due to multi-option content) up to OverlayController for
+                // accurate mouse hit-testing. A small inset expands the hit
+                // area slightly to tolerate sub-pixel rounding.
+                GeometryReader { geo in
+                    Color.clear.preference(
+                        key: TooltipFramePreferenceKey.self,
+                        value: geo.frame(in: .named(OverlayView.overlayCoordinateSpace))
+                            .insetBy(dx: -4, dy: -4)
+                    )
+                }
+            )
             .position(x: x, y: y)
         }
 
@@ -166,6 +206,7 @@ struct OverlayView: View {
         let colorForTerm: (String) -> Color
         var onReportErrata: ((String, String?) -> Void)? = nil
         var onCandidateSelected: ((HighlightBox, WikiResult, [WikiResult]) -> Void)? = nil
+        var onCandidatesDismissed: ((HighlightBox, String, [WikiResult]) -> Void)? = nil
 
         var body: some View {
             let visibleCount = min(sideAnnotations.count, maxVisibleCards)
@@ -199,7 +240,8 @@ struct OverlayView: View {
                         maxHeight: debugModeEnabled ? 196 : 168,
                         debugModeEnabled: debugModeEnabled,
                         onReportErrata: onReportErrata,
-                        onCandidateSelected: onCandidateSelected
+                        onCandidateSelected: onCandidateSelected,
+                        onCandidatesDismissed: onCandidatesDismissed
                     )
                 }
 
@@ -248,6 +290,7 @@ struct OverlayView: View {
         let debugModeEnabled: Bool
         var onReportErrata: ((String, String?) -> Void)? = nil
         var onCandidateSelected: ((HighlightBox, WikiResult, [WikiResult]) -> Void)? = nil
+        var onCandidatesDismissed: ((HighlightBox, String, [WikiResult]) -> Void)? = nil
 
         var body: some View {
             VStack(alignment: .leading, spacing: 6) {
@@ -339,7 +382,7 @@ struct OverlayView: View {
                             onCandidateSelected?(annotation.highlight, selected, candidateSet.candidates)
                         },
                         onDismiss: {
-                            onCandidateSelected?(annotation.highlight, WikiResult(status: .suppressed, requested: candidateSet.requested), candidateSet.candidates)
+                            onCandidatesDismissed?(annotation.highlight, candidateSet.requested, candidateSet.candidates)
                         }
                     )
                 }
@@ -517,12 +560,29 @@ struct OverlayView: View {
         let onSelect: (WikiResult) -> Void
         var onDismiss: (() -> Void)? = nil
 
+        // Stable, unique identity for each candidate row. pageURL alone is
+        // fragile because it can be nil (duplicate nils collide). We fall back
+        // through title and requested, then append the row index to guarantee
+        // uniqueness even if two candidates share every other field.
+        private struct IdentifiedCandidate: Identifiable {
+            let id: String
+            let candidate: WikiResult
+        }
+
+        private var identifiedCandidates: [IdentifiedCandidate] {
+            candidateSet.candidates.enumerated().map { idx, c in
+                let key = c.pageURL ?? c.title ?? c.requested
+                return IdentifiedCandidate(id: "\(idx)|\(key)", candidate: c)
+            }
+        }
+
         var body: some View {
             VStack(alignment: .leading, spacing: 8) {
                 Text("Which meaning?")
                     .font(.system(size: 12, weight: .semibold))
 
-                ForEach(candidateSet.candidates, id: \.pageURL) { candidate in
+                ForEach(identifiedCandidates) { item in
+                    let candidate = item.candidate
                     Button {
                         onSelect(candidate)
                     } label: {

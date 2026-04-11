@@ -37,18 +37,41 @@ enum WikiLookupResult: Sendable {
     case ambiguous(WikiCandidateSet)
 }
 
+// Request-scoped accumulator for candidates seen during a single lookup.
+// Shared via @TaskLocal so concurrent lookups each get their own collector
+// rather than racing on shared static state. Thread-safe internally.
+final class WikiCandidateCollector: @unchecked Sendable {
+    private var candidates: [WikiResult] = []
+    private let lock = NSLock()
+
+    fileprivate func add(_ result: WikiResult) {
+        guard result.status == .ok, let score = result.score, score >= 0.45 else { return }
+        let norm = Wikipedia.normalizeTitleKey(result.title ?? "")
+        lock.lock(); defer { lock.unlock() }
+        if !candidates.contains(where: { Wikipedia.normalizeTitleKey($0.title ?? "") == norm }) {
+            candidates.append(result)
+        }
+    }
+
+    fileprivate func snapshot() -> [WikiResult] {
+        lock.lock(); defer { lock.unlock() }
+        return candidates
+    }
+}
+
 enum Wikipedia {
-    // Candidate pool: accumulates scored results during a lookup for multi-option UI.
-    // Reset at the start of each lookupWithCandidates() call.
-    private nonisolated(unsafe) static var candidatePool: [WikiResult] = []
+    // Task-local collector. Any lookup running inside a
+    // `$activeCollector.withValue(...)` scope will record its candidates into
+    // that collector; all other callers see nil and no-op.
+    @TaskLocal private static var activeCollector: WikiCandidateCollector?
+
+    // Shim so the nested collector class can access the (private) normalize().
+    fileprivate static func normalizeTitleKey(_ s: String) -> String {
+        return normalize(s)
+    }
 
     private static func recordCandidate(_ result: WikiResult) {
-        guard result.status == .ok, let score = result.score, score >= 0.45 else { return }
-        // Deduplicate by title
-        let norm = normalize(result.title ?? "")
-        if !candidatePool.contains(where: { normalize($0.title ?? "") == norm }) {
-            candidatePool.append(result)
-        }
+        activeCollector?.add(result)
     }
 
     static func lookupWithCandidates(
@@ -57,8 +80,10 @@ enum Wikipedia {
         contextAfter: String? = nil,
         bookContext: String? = nil
     ) async -> WikiLookupResult {
-        candidatePool = []
-        let result = await lookup(term, contextBefore: contextBefore, contextAfter: contextAfter, bookContext: bookContext)
+        let collector = WikiCandidateCollector()
+        let result = await Self.$activeCollector.withValue(collector) {
+            await lookup(term, contextBefore: contextBefore, contextAfter: contextAfter, bookContext: bookContext)
+        }
 
         // If the result is confident or failed, return as single
         let score = result.score ?? 0
@@ -67,7 +92,7 @@ enum Wikipedia {
         }
 
         // Score is in [0.50, 0.65) — uncertain. Check if we have multiple candidates.
-        let viable = candidatePool
+        let viable = collector.snapshot()
             .filter { ($0.score ?? 0) >= 0.45 }
             .sorted { ($0.score ?? 0) > ($1.score ?? 0) }
 

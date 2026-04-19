@@ -3,6 +3,7 @@ import AppKit
 
 struct ContentView: View {
     @EnvironmentObject var model: AppModel
+    @State private var hasTrainingData = TrainingDataStore.shared.hasData
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -100,7 +101,7 @@ struct ContentView: View {
             Menu {
                 // Brief transparency note shown inline so users can see what
                 // Summa is collecting before choosing to reveal or clear it.
-                Text("Summa keeps a local log of which annotation you pick when multiple options are shown. Nothing is uploaded.")
+                Text("Summa keeps a local log of which annotation you pick when multiple options are shown. Nothing is uploaded automatically.")
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
 
@@ -116,10 +117,11 @@ struct ContentView: View {
 
                 Button(role: .destructive) {
                     TrainingDataStore.shared.clearAll()
+                    hasTrainingData = false
                 } label: {
                     Label("Clear Training Log", systemImage: "trash")
                 }
-                .disabled(!TrainingDataStore.shared.hasData)
+                .disabled(!hasTrainingData)
             } label: {
                 Label("Training Data", systemImage: "text.book.closed")
                     .font(.system(size: 12))

@@ -10,12 +10,11 @@
 		D9011FF52F2D66E1000B8600 /* OverlayState.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9011FF42F2D66E1000B8600 /* OverlayState.swift */; };
 		D9011FF92F2D6810000B8600 /* LookupCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9011FF82F2D6810000B8600 /* LookupCache.swift */; };
 		D9011FFB2F2D6823000B8600 /* Wikipedia.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9011FFA2F2D6823000B8600 /* Wikipedia.swift */; };
-		D9A0B1012F58A00100AA1001 /* TrainingDataStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9A0B1002F58A00100AA1001 /* TrainingDataStore.swift */; };
-
 		D919C0492F4E543000853E78 /* CatalogRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = D919C0482F4E543000853E78 /* CatalogRecorder.swift */; };
 		D919C04B2F4E5A2D00853E78 /* Geometry.swift in Sources */ = {isa = PBXBuildFile; fileRef = D919C04A2F4E5A2D00853E78 /* Geometry.swift */; };
 		D97D81C32F3C15B200933D15 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = D97D81C12F3C15B200933D15 /* Assets.xcassets */; };
 		D97D81CD2F3C21B600933D15 /* ScrollActivityMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = D97D81CC2F3C21AC00933D15 /* ScrollActivityMonitor.swift */; };
+		D9A0B1012F58A00100AA1001 /* TrainingDataStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9A0B1002F58A00100AA1001 /* TrainingDataStore.swift */; };
 		D9CCFEE32F300A1200031E62 /* CommonWords.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9CCFEE22F300A1200031E62 /* CommonWords.swift */; };
 		D9CCFEE92F300E1000031E62 /* common_words_en_20k.txt in Resources */ = {isa = PBXBuildFile; fileRef = D9CCFEE82F300E1000031E62 /* common_words_en_20k.txt */; };
 		D9F347022F2D4146001946B2 /* ScreenGlossMVPApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9F347012F2D413B001946B2 /* ScreenGlossMVPApp.swift */; };
@@ -35,13 +34,12 @@
 		D9011FF42F2D66E1000B8600 /* OverlayState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OverlayState.swift; sourceTree = "<group>"; };
 		D9011FF82F2D6810000B8600 /* LookupCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LookupCache.swift; sourceTree = "<group>"; };
 		D9011FFA2F2D6823000B8600 /* Wikipedia.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Wikipedia.swift; sourceTree = "<group>"; };
-		D9A0B1002F58A00100AA1001 /* TrainingDataStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrainingDataStore.swift; sourceTree = "<group>"; };
-
 		D919C0482F4E543000853E78 /* CatalogRecorder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CatalogRecorder.swift; sourceTree = "<group>"; };
 		D919C04A2F4E5A2D00853E78 /* Geometry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Geometry.swift; sourceTree = "<group>"; };
 		D97D81C12F3C15B200933D15 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		D97D81C22F3C15B200933D15 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		D97D81CC2F3C21AC00933D15 /* ScrollActivityMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScrollActivityMonitor.swift; sourceTree = "<group>"; };
+		D9A0B1002F58A00100AA1001 /* TrainingDataStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrainingDataStore.swift; sourceTree = "<group>"; };
 		D9CCFEE22F300A1200031E62 /* CommonWords.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommonWords.swift; sourceTree = "<group>"; };
 		D9CCFEE82F300E1000031E62 /* common_words_en_20k.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = common_words_en_20k.txt; sourceTree = "<group>"; };
 		D9F346F32F2D40F2001946B2 /* ScreenGlossMVP.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ScreenGlossMVP.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -111,7 +109,6 @@
 		D97D81C82F3C1F8700933D15 /* Lookups */ = {
 			isa = PBXGroup;
 			children = (
-
 				D9F3470F2F2D4197001946B2 /* Lookups.swift */,
 				D9011FF82F2D6810000B8600 /* LookupCache.swift */,
 				D9A0B1002F58A00100AA1001 /* TrainingDataStore.swift */,
@@ -249,7 +246,6 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-
 				D9F3470C2F2D4189001946B2 /* HighlightEngine.swift in Sources */,
 				D9011FFB2F2D6823000B8600 /* Wikipedia.swift in Sources */,
 				D9F347042F2D416A001946B2 /* ContentView.swift in Sources */,
@@ -398,10 +394,13 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CLANG_ENABLE_MODULES = YES;
+				CODE_SIGN_ENTITLEMENTS = Resources/Summa.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
-				ENABLE_APP_SANDBOX = YES;
+				DEVELOPMENT_TEAM = 6BZ5M39S4D;
+				ENABLE_APP_SANDBOX = NO;
+				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_INCOMING_NETWORK_CONNECTIONS = NO;
 				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
 				ENABLE_PREVIEWS = YES;
@@ -440,10 +439,13 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CLANG_ENABLE_MODULES = YES;
+				CODE_SIGN_ENTITLEMENTS = Resources/Summa.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
-				ENABLE_APP_SANDBOX = YES;
+				DEVELOPMENT_TEAM = 6BZ5M39S4D;
+				ENABLE_APP_SANDBOX = NO;
+				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_INCOMING_NETWORK_CONNECTIONS = NO;
 				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
 				ENABLE_PREVIEWS = YES;

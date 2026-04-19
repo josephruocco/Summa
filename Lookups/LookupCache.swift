@@ -10,7 +10,10 @@ final class LookupCache {
         var version: Int = 0
         var dict: [String: String] = [:]
         var wiki: [String: WikiResult] = [:]
-        var multi: [String: WikiCandidateSet] = [:]
+        // Optional so that cache files written before this field existed
+        // decode cleanly rather than throwing keyNotFound and silently
+        // dropping the entire cache.
+        var multi: [String: WikiCandidateSet]?
     }
 
     private struct SuppressedLogEntry: Codable {
@@ -106,7 +109,7 @@ final class LookupCache {
         lock.lock()
         dict = decoded.dict
         wiki = decoded.wiki
-        multi = decoded.multi
+        multi = decoded.multi ?? [:]
         lock.unlock()
     }
 

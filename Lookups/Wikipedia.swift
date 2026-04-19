@@ -1,5 +1,13 @@
 import Foundation
 
+// Stubs for symbols provided by GutenbergTest/main.swift in the CLI target.
+// In the app target these provide silent no-ops so Wikipedia.swift compiles.
+private func log(_ msg: String) {}
+
+private enum CommonWordsLoader {
+    nonisolated(unsafe) static let set: Set<String> = []
+}
+
 enum WikiStatus: String, Codable, Sendable {
     case ok
     case notFound
@@ -19,7 +27,114 @@ struct WikiResult: Codable, Sendable, Hashable {
     var score: Double?
 }
 
+struct WikiCandidateSet: Codable, Sendable, Hashable {
+    let requested: String
+    let candidates: [WikiResult]
+}
+
+enum WikiLookupResult: Sendable {
+    case single(WikiResult)
+    case ambiguous(WikiCandidateSet)
+}
+
+// Request-scoped accumulator for candidates seen during a single lookup.
+// Shared via @TaskLocal so concurrent lookups each get their own collector
+// rather than racing on shared static state. Thread-safe internally.
+final class WikiCandidateCollector: @unchecked Sendable {
+    private var candidates: [WikiResult] = []
+    private let lock = NSLock()
+
+    fileprivate func add(_ result: WikiResult) {
+        guard result.status == .ok, let score = result.score, score >= 0.45 else { return }
+        let norm = Wikipedia.normalizeTitleKey(result.title ?? "")
+        lock.lock(); defer { lock.unlock() }
+        if !candidates.contains(where: { Wikipedia.normalizeTitleKey($0.title ?? "") == norm }) {
+            candidates.append(result)
+        }
+    }
+
+    fileprivate func snapshot() -> [WikiResult] {
+        lock.lock(); defer { lock.unlock() }
+        return candidates
+    }
+}
+
 enum Wikipedia {
+    // Task-local collector. Any lookup running inside a
+    // `$activeCollector.withValue(...)` scope will record its candidates into
+    // that collector; all other callers see nil and no-op.
+    @TaskLocal private static var activeCollector: WikiCandidateCollector?
+
+    // Shim so the nested collector class can access the (private) normalize().
+    fileprivate static func normalizeTitleKey(_ s: String) -> String {
+        return normalize(s)
+    }
+
+    private static func recordCandidate(_ result: WikiResult) {
+        activeCollector?.add(result)
+    }
+
+    // Score band that triggers the multi-option picker. Tuned wide enough to
+    // catch genuinely-uncertain matches without nagging users on confident hits.
+    private static let ambiguousBandLow: Double = 0.50
+    private static let ambiguousBandHigh: Double = 0.72
+
+    static func lookupWithCandidates(
+        _ term: String,
+        contextBefore: String? = nil,
+        contextAfter: String? = nil,
+        bookContext: String? = nil
+    ) async -> WikiLookupResult {
+        let collector = WikiCandidateCollector()
+        let result = await Self.$activeCollector.withValue(collector) {
+            let r = await lookup(term, contextBefore: contextBefore, contextAfter: contextAfter, bookContext: bookContext)
+            // Always seed the collector with the primary result so it can be
+            // one of the options in the picker even when `lookup()` returned
+            // immediately via the direct-page path and never touched search.
+            if r.status == .ok { recordCandidate(r) }
+
+            // When the primary score is in the uncertain band but the
+            // collector didn't accumulate a second option (i.e. search
+            // resolution was never invoked), actively run a supplementary
+            // search pass purely to surface alternatives. Side effect only:
+            // the returned value is discarded; what we care about is that
+            // resolveViaSearch calls recordCandidate() on every page it
+            // scores.
+            let score = r.score ?? 0
+            if r.status == .ok,
+               score >= ambiguousBandLow,
+               score < ambiguousBandHigh,
+               collector.snapshot().count < 2 {
+                _ = await resolveViaSearch(
+                    term,
+                    requested: term,
+                    contextBefore: contextBefore,
+                    contextAfter: contextAfter
+                )
+            }
+            return r
+        }
+
+        // If the primary result failed or was very confident, return as single.
+        let score = result.score ?? 0
+        if result.status != .ok || score >= ambiguousBandHigh || score < ambiguousBandLow {
+            return .single(result)
+        }
+
+        // Primary is in the uncertain band. Assemble the picker from the
+        // collector's pool, making sure the primary result is included.
+        let viable = collector.snapshot()
+            .filter { ($0.score ?? 0) >= 0.40 }
+            .sorted { ($0.score ?? 0) > ($1.score ?? 0) }
+
+        let topCandidates = Array(viable.prefix(3))
+        if topCandidates.count >= 2 {
+            return .ambiguous(WikiCandidateSet(requested: term, candidates: topCandidates))
+        }
+
+        return .single(result)
+    }
+
     // In-memory negative cache: terms confirmed to have no Wikipedia article are skipped
     // on subsequent page scans without re-querying. Keyed on normalized term.
     private nonisolated(unsafe) static var notFoundCache: Set<String> = []
@@ -68,7 +183,11 @@ enum Wikipedia {
         var hitDisambiguation = false
         var allBaseNotFound = true
         var bestDirectScore: Double = 0.0
-        var bestSuppressedResult: WikiResult? = nil
+        var bestSuppressedResult: WikiResult? = nil {
+            didSet {
+                if let r = bestSuppressedResult, r.status == .ok { recordCandidate(r) }
+            }
+        }
         var hitSuspiciousDirect = false
 
         for query in retryQueries(for: requested) {
@@ -589,6 +708,7 @@ enum Wikipedia {
                 enriched.requested = requested
                 enriched.score = score
                 resolved.append((enriched, score))
+                recordCandidate(enriched)
             }
 
             guard !resolved.isEmpty else {
@@ -763,6 +883,7 @@ enum Wikipedia {
             enriched.requested = requested
             enriched.score = score
             resolvedCandidates.append((enriched, score, candidate.snippet))
+            recordCandidate(enriched)
         }
         guard !resolvedCandidates.isEmpty else { return nil }
 

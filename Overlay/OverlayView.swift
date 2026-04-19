@@ -1,5 +1,15 @@
 import SwiftUI
 
+// Reports the hover tooltip's actual rendered frame (in the overlay's
+// top-left coordinate space) up to OverlayController, so hit-testing
+// doesn't have to hardcode a size. A nil value means no tooltip.
+struct TooltipFramePreferenceKey: PreferenceKey {
+    static var defaultValue: CGRect? = nil
+    static func reduce(value: inout CGRect?, nextValue: () -> CGRect?) {
+        if let next = nextValue() { value = next }
+    }
+}
+
 struct OverlayView: View {
     let vocab: [HighlightBox]
     let refs: [HighlightBox]
@@ -10,6 +20,12 @@ struct OverlayView: View {
     let sideRailWidth: CGFloat
     let sidebarAnchorX: CGFloat
     let debugModeEnabled: Bool
+    var onReportErrata: ((String, String?) -> Void)? = nil
+    var onCandidateSelected: ((HighlightBox, WikiResult, [WikiResult]) -> Void)? = nil
+    var onCandidatesDismissed: ((HighlightBox, String, [WikiResult]) -> Void)? = nil
+    var onTooltipFrameChanged: ((CGRect?) -> Void)? = nil
+
+    static let overlayCoordinateSpace: String = "overlay"
 
     private let palette: [Color] = [
         Color(red: 0.55, green: 0.85, blue: 0.87),
@@ -53,17 +69,36 @@ struct OverlayView: View {
                         sideRailWidth: sideRailWidth,
                         sidebarAnchorX: sidebarAnchorX,
                         debugModeEnabled: debugModeEnabled,
-                        colorForTerm: color(for:)
+                        colorForTerm: color(for:),
+                        onReportErrata: onReportErrata,
+                        onCandidateSelected: onCandidateSelected,
+                        onCandidatesDismissed: onCandidatesDismissed
                     )
                 }
 
                 if layoutMode == .hover, let hovered, let tooltip {
-                    TooltipCard(hovered: hovered, tooltip: tooltip, overlaySize: size)
-                        .allowsHitTesting(false)
+                    TooltipCard(
+                        hovered: hovered,
+                        tooltip: tooltip,
+                        overlaySize: size,
+                        onReportErrata: onReportErrata,
+                        onCandidateSelected: onCandidateSelected,
+                        onCandidatesDismissed: onCandidatesDismissed
+                    )
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Color.clear)
+            .coordinateSpace(name: Self.overlayCoordinateSpace)
+            .onPreferenceChange(TooltipFramePreferenceKey.self) { frame in
+                // Clear when there's no active hover tooltip so the controller
+                // knows the hit-test region is gone.
+                if layoutMode != .hover || hovered == nil || tooltip == nil {
+                    onTooltipFrameChanged?(nil)
+                } else {
+                    onTooltipFrameChanged?(frame)
+                }
+            }
         }
     }
 
@@ -71,6 +106,9 @@ struct OverlayView: View {
         let hovered: HighlightBox
         let tooltip: OverlayTooltip
         let overlaySize: CGSize
+        var onReportErrata: ((String, String?) -> Void)? = nil
+        var onCandidateSelected: ((HighlightBox, WikiResult, [WikiResult]) -> Void)? = nil
+        var onCandidatesDismissed: ((HighlightBox, String, [WikiResult]) -> Void)? = nil
 
         var body: some View {
             let boxW = max(220, min(380, overlaySize.width - 24))
@@ -92,6 +130,42 @@ struct OverlayView: View {
                         .fixedSize(horizontal: false, vertical: true)
                 case .wiki(let r):
                     WikiBlock(r: r)
+                case .multiOption(let set):
+                    MultiOptionBlock(
+                        phrase: hovered.text,
+                        candidateSet: set,
+                        onSelect: { selected in
+                            onCandidateSelected?(hovered, selected, set.candidates)
+                        },
+                        onDismiss: {
+                            onCandidatesDismissed?(hovered, set.requested, set.candidates)
+                        }
+                    )
+                }
+
+                HStack {
+                    Button {
+                        let label: String? = {
+                            switch tooltip {
+                            case .wiki(let r): return r.title
+                            case .dictionary(_, let def): return def
+                            case .loading: return nil
+                            case .multiOption: return nil
+                            }
+                        }()
+                        onReportErrata?(hovered.text, label)
+                    } label: {
+                        HStack(spacing: 3) {
+                            Image(systemName: "flag")
+                                .font(.system(size: 10))
+                            Text("Report")
+                                .font(.system(size: 10))
+                        }
+                        .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+
+                    Spacer()
                 }
             }
             .padding(10)
@@ -102,6 +176,19 @@ struct OverlayView: View {
                     .stroke(Color.white.opacity(0.25), lineWidth: 1)
             )
             .frame(width: boxW, alignment: .leading)
+            .background(
+                // Report the tooltip's actual rendered frame (variable height
+                // due to multi-option content) up to OverlayController for
+                // accurate mouse hit-testing. A small inset expands the hit
+                // area slightly to tolerate sub-pixel rounding.
+                GeometryReader { geo in
+                    Color.clear.preference(
+                        key: TooltipFramePreferenceKey.self,
+                        value: geo.frame(in: .named(OverlayView.overlayCoordinateSpace))
+                            .insetBy(dx: -4, dy: -4)
+                    )
+                }
+            )
             .position(x: x, y: y)
         }
 
@@ -117,6 +204,9 @@ struct OverlayView: View {
         let sidebarAnchorX: CGFloat
         let debugModeEnabled: Bool
         let colorForTerm: (String) -> Color
+        var onReportErrata: ((String, String?) -> Void)? = nil
+        var onCandidateSelected: ((HighlightBox, WikiResult, [WikiResult]) -> Void)? = nil
+        var onCandidatesDismissed: ((HighlightBox, String, [WikiResult]) -> Void)? = nil
 
         var body: some View {
             let visibleCount = min(sideAnnotations.count, maxVisibleCards)
@@ -148,7 +238,10 @@ struct OverlayView: View {
                         annotation: annotation,
                         color: colorForTerm(annotation.highlight.text),
                         maxHeight: debugModeEnabled ? 196 : 168,
-                        debugModeEnabled: debugModeEnabled
+                        debugModeEnabled: debugModeEnabled,
+                        onReportErrata: onReportErrata,
+                        onCandidateSelected: onCandidateSelected,
+                        onCandidatesDismissed: onCandidatesDismissed
                     )
                 }
 
@@ -195,6 +288,9 @@ struct OverlayView: View {
         let color: Color
         let maxHeight: CGFloat
         let debugModeEnabled: Bool
+        var onReportErrata: ((String, String?) -> Void)? = nil
+        var onCandidateSelected: ((HighlightBox, WikiResult, [WikiResult]) -> Void)? = nil
+        var onCandidatesDismissed: ((HighlightBox, String, [WikiResult]) -> Void)? = nil
 
         var body: some View {
             VStack(alignment: .leading, spacing: 6) {
@@ -222,6 +318,20 @@ struct OverlayView: View {
                         .font(.system(size: 12))
                         .foregroundStyle(Color.black.opacity(0.84))
                         .lineLimit(bodyLineLimit)
+
+                    HStack {
+                        Button {
+                            onReportErrata?(annotation.highlight.text, annotationLabel)
+                        } label: {
+                            Image(systemName: "flag")
+                                .font(.system(size: 11))
+                                .foregroundStyle(Color.black.opacity(0.38))
+                        }
+                        .buttonStyle(.plain)
+                        .help("Report wrong annotation")
+                        Spacer()
+                    }
+                    .padding(.top, 2)
                 case .wiki(let result):
                     if let title = result.title, !title.isEmpty, title.caseInsensitiveCompare(annotation.highlight.text) != .orderedSame {
                         Text(title)
@@ -235,9 +345,20 @@ struct OverlayView: View {
                         .foregroundStyle(result.status == .ok ? Color.black.opacity(0.84) : Color.black.opacity(0.58))
                         .lineLimit(bodyLineLimit)
 
-                    if result.status == .ok, let page = result.pageURL, !page.isEmpty, let url = URL(string: page) {
-                        HStack {
-                            Spacer()
+                    HStack {
+                        Button {
+                            onReportErrata?(annotation.highlight.text, annotationLabel)
+                        } label: {
+                            Image(systemName: "flag")
+                                .font(.system(size: 11))
+                                .foregroundStyle(Color.black.opacity(0.38))
+                        }
+                        .buttonStyle(.plain)
+                        .help("Report wrong annotation")
+
+                        Spacer()
+
+                        if result.status == .ok, let page = result.pageURL, !page.isEmpty, let url = URL(string: page) {
                             Button {
                                 NSWorkspace.shared.open(url)
                             } label: {
@@ -247,12 +368,23 @@ struct OverlayView: View {
                             }
                             .buttonStyle(.plain)
                         }
-                        .padding(.top, 2)
                     }
+                    .padding(.top, 2)
 
                     if debugModeEnabled {
                         debugInfo(for: result)
                     }
+                case .multiOption(let candidateSet):
+                    MultiOptionBlock(
+                        phrase: annotation.highlight.text,
+                        candidateSet: candidateSet,
+                        onSelect: { selected in
+                            onCandidateSelected?(annotation.highlight, selected, candidateSet.candidates)
+                        },
+                        onDismiss: {
+                            onCandidatesDismissed?(annotation.highlight, candidateSet.requested, candidateSet.candidates)
+                        }
+                    )
                 }
             }
             .frame(maxWidth: .infinity, alignment: .topLeading)
@@ -269,6 +401,15 @@ struct OverlayView: View {
                     .stroke(color.opacity(0.98), lineWidth: 1.4)
             )
             .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        }
+
+        private var annotationLabel: String? {
+            switch annotation.tooltip {
+            case .loading: return nil
+            case .dictionary(_, let def): return def
+            case .wiki(let r): return r.title
+            case .multiOption: return nil
+            }
         }
 
         private var bodyLineLimit: Int {
@@ -401,6 +542,86 @@ struct OverlayView: View {
                 return firstSentence(r.extract) ?? "Wikipedia lookup failed."
             case .suppressed:
                 return firstSentence(r.extract) ?? "Suppressed low-confidence match."
+            }
+        }
+
+        private func firstSentence(_ text: String?) -> String? {
+            guard let text, !text.isEmpty else { return nil }
+            if let range = text.range(of: #"[.!?](?=\s|$)"#, options: .regularExpression) {
+                return String(text[text.startIndex..<range.upperBound])
+            }
+            return text
+        }
+    }
+
+    private struct MultiOptionBlock: View {
+        let phrase: String
+        let candidateSet: WikiCandidateSet
+        let onSelect: (WikiResult) -> Void
+        var onDismiss: (() -> Void)? = nil
+
+        // Stable, unique identity for each candidate row. pageURL alone is
+        // fragile because it can be nil (duplicate nils collide). We fall back
+        // through title and requested, then append the row index to guarantee
+        // uniqueness even if two candidates share every other field.
+        private struct IdentifiedCandidate: Identifiable {
+            let id: String
+            let candidate: WikiResult
+        }
+
+        private var identifiedCandidates: [IdentifiedCandidate] {
+            candidateSet.candidates.enumerated().map { idx, c in
+                let key = c.pageURL ?? c.title ?? c.requested
+                return IdentifiedCandidate(id: "\(idx)|\(key)", candidate: c)
+            }
+        }
+
+        var body: some View {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Which meaning?")
+                    .font(.system(size: 12, weight: .semibold))
+
+                ForEach(identifiedCandidates) { item in
+                    let candidate = item.candidate
+                    Button {
+                        onSelect(candidate)
+                    } label: {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(candidate.title ?? candidate.requested)
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundStyle(.primary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+
+                            if let summary = firstSentence(candidate.extract), !summary.isEmpty {
+                                Text(summary)
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(2)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 7)
+                        .background(
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .fill(Color.white.opacity(0.72))
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .stroke(Color.black.opacity(0.08), lineWidth: 1)
+                        )
+                    }
+                    .buttonStyle(.plain)
+                }
+
+                Button {
+                    onDismiss?()
+                } label: {
+                    Text("None of these")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
             }
         }
 

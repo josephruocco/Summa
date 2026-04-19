@@ -42,6 +42,11 @@ final class OverlayController {
     private var targetFrame: CGRect = .zero
     private var sidebarAnchorX: CGFloat = 0
     private var debugModeEnabled = false
+    // Last rendered tooltip frame, reported via SwiftUI preference key. Used
+    // for mouse hit-testing so we don't have to hardcode tooltip dimensions
+    // (multi-option pickers have variable height).
+    private var tooltipFrame: CGRect? = nil
+    var windowLabel: String = ""
 
     var currentSize: CGSize { window.contentView?.bounds.size ?? .zero }
     var currentContentSize: CGSize { targetFrame.isEmpty ? currentSize : targetFrame.size }
@@ -149,20 +154,36 @@ final class OverlayController {
     }
 
     private func updateMousePassthrough() {
-        guard layoutMode == .side, !targetFrame.isEmpty else {
-            window.ignoresMouseEvents = true
-            return
-        }
         let mouse = NSEvent.mouseLocation
         let winFrame = window.frame
+
         guard winFrame.contains(mouse) else {
             window.ignoresMouseEvents = true
             return
         }
-        // Content frame ends at targetFrame.width from the window's left edge.
-        // To the right of that is the sidebar gutter — make it interactive.
-        let sidebarStartX = winFrame.minX + targetFrame.width
-        window.ignoresMouseEvents = mouse.x <= sidebarStartX
+
+        if layoutMode == .side, !targetFrame.isEmpty {
+            // Content frame ends at targetFrame.width from the window's left edge.
+            // To the right of that is the sidebar gutter — make it interactive.
+            let sidebarStartX = winFrame.minX + targetFrame.width
+            window.ignoresMouseEvents = mouse.x <= sidebarStartX
+            return
+        }
+
+        if layoutMode == .hover, hovered != nil, let tooltipFrame {
+            // Use the tooltip's actual rendered frame (reported via
+            // TooltipFramePreferenceKey) so hit-testing adapts to variable
+            // content height — e.g. multi-option pickers are taller than
+            // single wiki/dictionary cards.
+            let localX = mouse.x - winFrame.origin.x
+            let localY = winFrame.height - (mouse.y - winFrame.origin.y) // flip to SwiftUI top-left coords
+            if tooltipFrame.contains(CGPoint(x: localX, y: localY)) {
+                window.ignoresMouseEvents = false
+                return
+            }
+        }
+
+        window.ignoresMouseEvents = true
     }
 
     private func pollHover() {
@@ -206,7 +227,26 @@ final class OverlayController {
                     await self.showToolTip(for: hit)
                 }
             }
-        } else if hovered != nil {
+            return
+        }
+
+        // Mouse is NOT over a highlight. Before dismissing the tooltip, keep
+        // it visible if the mouse is now over the tooltip card itself — this
+        // is what lets users actually reach the Report button, pick a
+        // candidate in the multi-option picker, etc. We also tolerate a small
+        // "gap corridor" above the highlight for the trip from highlight to
+        // card.
+        if hovered != nil {
+            let overTooltip: Bool = {
+                guard let tooltipFrame else { return false }
+                // tooltipFrame is in SwiftUI top-left overlay coordinates —
+                // same space as localSwiftUI. Expand slightly to tolerate the
+                // gap between the highlight and the card.
+                return tooltipFrame.insetBy(dx: -6, dy: -6).contains(localSwiftUI)
+            }()
+            if overTooltip {
+                return // stay hovered, keep the card visible
+            }
             hovered = nil
             hoverTask?.cancel()
             hoverTask = nil
@@ -238,8 +278,49 @@ final class OverlayController {
             sideAnnotations: currentSidebarAnnotations(),
             sideRailWidth: sideRailWidth(for: window.frame),
             sidebarAnchorX: sidebarAnchorX,
-            debugModeEnabled: debugModeEnabled
+            debugModeEnabled: debugModeEnabled,
+            onReportErrata: { [weak self] phrase, annotation in
+                self?.openErrataForm(phrase: phrase, annotation: annotation)
+            },
+            onCandidateSelected: { [weak self] highlight, selected, allCandidates in
+                self?.selectCandidate(selected, forHighlight: highlight, allCandidates: allCandidates)
+            },
+            onCandidatesDismissed: { [weak self] highlight, requested, allCandidates in
+                self?.dismissCandidates(forHighlight: highlight, requested: requested, allCandidates: allCandidates)
+            },
+            onTooltipFrameChanged: { [weak self] frame in
+                guard let self else { return }
+                self.tooltipFrame = frame
+                self.updateMousePassthrough()
+            }
         )
+    }
+
+    private func openErrataForm(phrase: String, annotation: String?) {
+        // Browsers reliably accept URLs up to about 2,000 characters. Annotations
+        // can contain full Wikipedia extracts or multi-sentence definitions, which
+        // easily blows past that and would cause the browser to reject or truncate
+        // the URL. Clamp each field individually and rely on URLComponents /
+        // URLQueryItem to percent-encode.
+        func clamp(_ s: String, _ maxChars: Int) -> String {
+            let trimmed = s.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard trimmed.count > maxChars else { return trimmed }
+            return String(trimmed.prefix(maxChars - 1)) + "\u{2026}" // ellipsis
+        }
+
+        var components = URLComponents(string: "https://summa-demo.josephruocco.net/feedback")!
+        var items = [URLQueryItem(name: "phrase", value: clamp(phrase, 200))]
+        if !windowLabel.isEmpty {
+            items.append(URLQueryItem(name: "document", value: clamp(windowLabel, 200)))
+        }
+        if let annotation, !annotation.isEmpty {
+            items.append(URLQueryItem(name: "annotation", value: clamp(annotation, 600)))
+        }
+        items.append(URLQueryItem(name: "type", value: "wrong-annotation"))
+        components.queryItems = items
+        if let url = components.url {
+            NSWorkspace.shared.open(url)
+        }
     }
 
     private func applyOverlayFrame() {
@@ -362,13 +443,58 @@ final class OverlayController {
             return .dictionary(term: text, definition: def)
         }
 
+        if let cached = LookupCache.shared.multiOption(key) {
+            return .multiOption(cached)
+        }
+
         if let cached = LookupCache.shared.wikipedia(key) {
             return cached.status == .ok ? .wiki(cached) : nil
         }
 
-        let wiki = await Wikipedia.lookup(text, contextBefore: h.contextBefore, contextAfter: h.contextAfter)
-        LookupCache.shared.setWikipedia(key, wiki)
-        return wiki.status == .ok ? .wiki(wiki) : nil
+        let lookupResult = await Wikipedia.lookupWithCandidates(text, contextBefore: h.contextBefore, contextAfter: h.contextAfter)
+        switch lookupResult {
+        case .single(let wiki):
+            LookupCache.shared.setWikipedia(key, wiki)
+            return wiki.status == .ok ? .wiki(wiki) : nil
+        case .ambiguous(let candidateSet):
+            LookupCache.shared.setMultiOption(key, candidateSet)
+            return .multiOption(candidateSet)
+        }
+    }
+
+    func selectCandidate(_ selected: WikiResult, forHighlight h: HighlightBox, allCandidates: [WikiResult] = []) {
+        let key = lookupKey(for: h)
+        let sKey = sidebarKey(for: h)
+        LookupCache.shared.setWikipedia(key, selected) // also clears multiOption for this key
+        TrainingDataStore.shared.recordSelection(
+            highlight: h,
+            windowLabel: windowLabel,
+            selected: selected,
+            allCandidates: allCandidates
+        )
+
+        if layoutMode == .side {
+            sideTooltips[sKey] = .wiki(selected)
+            render(hovered: nil, tooltip: nil)
+        } else {
+            render(hovered: hovered, tooltip: .wiki(selected))
+        }
+    }
+
+    func dismissCandidates(forHighlight h: HighlightBox, requested: String, allCandidates: [WikiResult]) {
+        let key = lookupKey(for: h)
+        let sKey = sidebarKey(for: h)
+        LookupCache.shared.clearMultiOption(key)
+        suppressedLookupKeys.insert(key)
+        sideTooltips.removeValue(forKey: sKey)
+        hovered = nil
+        TrainingDataStore.shared.recordDismissal(
+            highlight: h,
+            windowLabel: windowLabel,
+            requested: requested,
+            allCandidates: allCandidates
+        )
+        render(hovered: nil, tooltip: nil)
     }
 
     private func sidebarKey(for highlight: HighlightBox) -> String {
@@ -412,4 +538,5 @@ enum OverlayTooltip: Equatable {
     case loading
     case dictionary(term: String, definition: String)
     case wiki(WikiResult)
+    case multiOption(WikiCandidateSet)
 }

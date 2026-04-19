@@ -10,6 +10,7 @@ final class LookupCache {
         var version: Int = 0
         var dict: [String: String] = [:]
         var wiki: [String: WikiResult] = [:]
+        var multi: [String: WikiCandidateSet] = [:]
     }
 
     private struct SuppressedLogEntry: Codable {
@@ -23,6 +24,7 @@ final class LookupCache {
 
     private var dict: [String: String] = [:]
     private var wiki: [String: WikiResult] = [:]
+    private var multi: [String: WikiCandidateSet] = [:]
     private let lock = NSLock()
     private let cacheURL: URL?
     private let suppressedLogURL: URL?
@@ -41,7 +43,7 @@ final class LookupCache {
     func setDictionary(_ key: String, _ val: String) {
         lock.lock()
         dict[key] = val
-        let snapshot = CacheStore(version: Self.cacheVersion, dict: dict, wiki: wiki)
+        let snapshot = CacheStore(version: Self.cacheVersion, dict: dict, wiki: wiki, multi: multi)
         lock.unlock()
         persist(snapshot)
     }
@@ -54,7 +56,8 @@ final class LookupCache {
     func setWikipedia(_ key: String, _ val: WikiResult) {
         lock.lock()
         wiki[key] = val
-        let snapshot = CacheStore(version: Self.cacheVersion, dict: dict, wiki: wiki)
+        multi.removeValue(forKey: key)
+        let snapshot = CacheStore(version: Self.cacheVersion, dict: dict, wiki: wiki, multi: multi)
         lock.unlock()
         persist(snapshot)
 
@@ -72,6 +75,27 @@ final class LookupCache {
         }
     }
 
+    func multiOption(_ key: String) -> WikiCandidateSet? {
+        lock.lock(); defer { lock.unlock() }
+        return multi[key]
+    }
+
+    func setMultiOption(_ key: String, _ val: WikiCandidateSet) {
+        lock.lock()
+        multi[key] = val
+        let snapshot = CacheStore(version: Self.cacheVersion, dict: dict, wiki: wiki, multi: multi)
+        lock.unlock()
+        persist(snapshot)
+    }
+
+    func clearMultiOption(_ key: String) {
+        lock.lock()
+        multi.removeValue(forKey: key)
+        let snapshot = CacheStore(version: Self.cacheVersion, dict: dict, wiki: wiki, multi: multi)
+        lock.unlock()
+        persist(snapshot)
+    }
+
     private func loadFromDisk() {
         guard let cacheURL else { return }
         guard let data = try? Data(contentsOf: cacheURL) else { return }
@@ -82,6 +106,7 @@ final class LookupCache {
         lock.lock()
         dict = decoded.dict
         wiki = decoded.wiki
+        multi = decoded.multi
         lock.unlock()
     }
 

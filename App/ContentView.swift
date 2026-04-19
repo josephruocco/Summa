@@ -97,6 +97,36 @@ struct ContentView: View {
             .menuStyle(.borderlessButton)
             .fixedSize()
 
+            Menu {
+                // Brief transparency note shown inline so users can see what
+                // Summa is collecting before choosing to reveal or clear it.
+                Text("Summa keeps a local log of which annotation you pick when multiple options are shown. Nothing is uploaded.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+
+                Divider()
+
+                Button {
+                    if let url = TrainingDataStore.shared.storageFileURL {
+                        NSWorkspace.shared.activateFileViewerSelecting([url])
+                    }
+                } label: {
+                    Label("Reveal Training Log", systemImage: "magnifyingglass")
+                }
+
+                Button(role: .destructive) {
+                    TrainingDataStore.shared.clearAll()
+                } label: {
+                    Label("Clear Training Log", systemImage: "trash")
+                }
+                .disabled(!TrainingDataStore.shared.hasData)
+            } label: {
+                Label("Training Data", systemImage: "text.book.closed")
+                    .font(.system(size: 12))
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+
             VStack(alignment: .leading, spacing: 6) {
                 Text("Annotation Layout")
                     .font(.system(size: 11, weight: .medium))
@@ -134,6 +164,16 @@ struct ContentView: View {
             }
             .buttonStyle(.bordered)
             .disabled(!model.sessionOn || !model.hasExportFolder)
+
+            Button {
+                if let url = URL(string: "https://summa-demo.josephruocco.net/feedback") {
+                    NSWorkspace.shared.open(url)
+                }
+            } label: {
+                Label("Send Feedback", systemImage: "envelope")
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .buttonStyle(.bordered)
 
             Button(role: .none) {
                 NSApp.terminate(nil)

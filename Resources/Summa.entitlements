@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!--
+	  Summa is distributed via Developer ID (not the Mac App Store), so the
+	  App Sandbox is not required. We intentionally do not opt in because the
+	  app needs:
+	    - ScreenCaptureKit access to arbitrary on-screen windows
+	    - User-chosen export folders preserved across launches (outside a container)
+	    - Writes to ~/Library/Application Support/Summa for the training log
+
+	  Hardened runtime is enabled at the build-settings level
+	  (ENABLE_HARDENED_RUNTIME=YES). We request no hardened-runtime exceptions:
+	  no JIT, no unsigned executable memory, no DYLD environment variables,
+	  no disable-library-validation. If we ever need one, add it here with a
+	  comment explaining why.
+	-->
+</dict>
+</plist>

@@ -103,6 +103,7 @@ XCBUILD_ARGS=(
   -destination   "generic/platform=macOS"
   archive
   CODE_SIGN_STYLE=Automatic
+  ENABLE_HARDENED_RUNTIME=YES
 )
 [[ -n "$VERSION_OVERRIDE" ]] && XCBUILD_ARGS+=("MARKETING_VERSION=$VERSION_OVERRIDE")
 [[ -n "$BUILD_OVERRIDE"   ]] && XCBUILD_ARGS+=("CURRENT_PROJECT_VERSION=$BUILD_OVERRIDE")
@@ -144,7 +145,8 @@ codesign --verify --deep --strict --verbose=2 "$APP_PATH"
 spctl --assess --type execute --verbose "$APP_PATH" || true   # will fail pre-notarization; that's expected
 
 # Sanity-check that hardened runtime is on.
-if ! codesign -dvv "$APP_PATH" 2>&1 | grep -q 'flags=.*runtime'; then
+CODESIGN_INFO=$(codesign -dvv "$APP_PATH" 2>&1)
+if ! echo "$CODESIGN_INFO" | grep -q 'runtime'; then
   die "Hardened runtime not enabled. Set ENABLE_HARDENED_RUNTIME=YES in the Xcode Release config."
 fi
 

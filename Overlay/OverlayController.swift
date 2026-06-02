@@ -86,6 +86,23 @@ final class OverlayController {
         startHoverPolling()
     }
 
+    /// Place the overlay just above the pinned window so the frontmost
+    /// window naturally covers it where they overlap.
+    func setOverlayBehindFront(pinnedWindowID: UInt32) {
+        hovered = nil
+        hoverTask?.cancel()
+        hoverTask = nil
+        render(hovered: nil, tooltip: nil)
+        window.level = .normal
+        window.order(.above, relativeTo: Int(pinnedWindowID))
+    }
+
+    /// Restore the overlay to floating level (on top of everything).
+    func setOverlayFloating() {
+        window.level = .floating
+        window.orderFrontRegardless()
+    }
+
     func setOverlayFrame(_ frame: CGRect) {
         targetFrame = frame
         applyOverlayFrame()

@@ -63,7 +63,19 @@ final class AppModel: ObservableObject {
         ) { [weak self] _ in
             guard let self else { return }
             Task { @MainActor in
-                guard !self.windowLocked else { return }
+                if self.windowLocked, let lockedID = self.currentCapturedWindowID {
+                    // Layer the overlay between the pinned window and
+                    // whatever the user just switched to, so highlights
+                    // stay visible where they don't overlap.
+                    try? await Task.sleep(nanoseconds: 350_000_000)
+                    let frontID = WindowBounds.frontmostWindowID()
+                    if frontID == lockedID {
+                        self.overlay?.setOverlayFloating()
+                    } else {
+                        self.overlay?.setOverlayBehindFront(pinnedWindowID: lockedID)
+                    }
+                    return
+                }
                 try? await Task.sleep(nanoseconds: 350_000_000)
                 await self.syncToFrontmostWindow(startIfNeeded: self.sessionOn)
             }

@@ -42,6 +42,7 @@ final class OverlayController {
     private var targetFrame: CGRect = .zero
     private var sidebarAnchorX: CGFloat = 0
     private var debugModeEnabled = false
+    private var lastOCRTokenRects: [(text: String, rect: CGRect)] = []
     // Last rendered tooltip frame, reported via SwiftUI preference key. Used
     // for mouse hit-testing so we don't have to hardcode tooltip dimensions
     // (multi-option pickers have variable height).
@@ -90,6 +91,15 @@ final class OverlayController {
         applyOverlayFrame()
     }
 
+    func setOCRTokens(_ tokens: [OCRToken], overlaySize: CGSize) {
+        lastOCRTokenRects = tokens.compactMap { token in
+            let text = token.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard text.count >= 2 else { return nil }
+            let rect = OCR.normToRectInOverlay_TopLeftOrigin(token.rectNorm, overlaySize: overlaySize)
+            return (text: text, rect: rect)
+        }
+    }
+
     func setHighlights(vocab: [HighlightBox], refs: [HighlightBox], sidebarAnchorX: CGFloat) {
         self.vocab = vocab
         self.refs = refs
@@ -133,6 +143,7 @@ final class OverlayController {
     func clear() {
         vocab = []
         refs = []
+        lastOCRTokenRects = []
         hovered = nil
         sideTooltips.removeAll()
         sideLookupTasks.values.forEach { $0.cancel() }
@@ -230,12 +241,53 @@ final class OverlayController {
             return
         }
 
-        // Mouse is NOT over a highlight. Before dismissing the tooltip, keep
-        // it visible if the mouse is now over the tooltip card itself — this
-        // is what lets users actually reach the Report button, pick a
-        // candidate in the multi-option picker, etc. We also tolerate a small
-        // "gap corridor" above the highlight for the trip from highlight to
-        // card.
+        // No auto-detected highlight — check if hovering any OCR token for
+        // ad-hoc lookup (lets the user look up words the engine didn't pick).
+        if let tokenMatch = lastOCRTokenRects.enumerated().first(where: {
+            $0.element.rect.insetBy(dx: -1, dy: -1).contains(localSwiftUI)
+        }) {
+            let token = tokenMatch.element
+            let idx = tokenMatch.offset
+
+            let alreadyHovering = hovered.map { h in
+                h.text == token.text &&
+                abs(h.rect.midX - token.rect.midX) < 3 &&
+                abs(h.rect.midY - token.rect.midY) < 3
+            } ?? false
+
+            if !alreadyHovering {
+                let contextWindow = 15
+                let start = max(0, idx - contextWindow)
+                let end = min(lastOCRTokenRects.count, idx + contextWindow + 1)
+                let ctxBefore = lastOCRTokenRects[start..<idx].map(\.text).joined(separator: " ")
+                let ctxAfter = lastOCRTokenRects[(idx + 1)..<end].map(\.text).joined(separator: " ")
+
+                let isCapitalized = token.text.first?.isUppercase ?? false
+                let kind: HighlightBox.Kind = isCapitalized ? .reference : .vocab
+
+                let adHoc = HighlightBox(
+                    text: token.text, rect: token.rect, kind: kind,
+                    contextBefore: ctxBefore, contextAfter: ctxAfter
+                )
+
+                if !suppressedLookupKeys.contains(lookupKey(for: adHoc)) {
+                    hovered = adHoc
+                    hoverTask?.cancel()
+                    hoverTask = Task { [weak self] in
+                        guard let self else { return }
+                        await self.showToolTip(for: adHoc)
+                    }
+                }
+            }
+            return
+        }
+
+        // Mouse is NOT over a highlight or token. Before dismissing the
+        // tooltip, keep it visible if the mouse is now over the tooltip card
+        // itself — this is what lets users actually reach the Report button,
+        // pick a candidate in the multi-option picker, etc. We also tolerate
+        // a small "gap corridor" above the highlight for the trip from
+        // highlight to card.
         if hovered != nil {
             let overTooltip: Bool = {
                 guard let tooltipFrame else { return false }

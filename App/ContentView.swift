@@ -59,9 +59,24 @@ struct ContentView: View {
     private var statusCard: some View {
         VStack(alignment: .leading, spacing: 10) {
             VStack(alignment: .leading, spacing: 4) {
-                Text("Current window")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(.secondary)
+                HStack {
+                    Text("Current window")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(.secondary)
+
+                    Spacer()
+
+                    Button {
+                        model.windowLocked.toggle()
+                    } label: {
+                        Image(systemName: model.windowLocked ? "pin.fill" : "pin.slash")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(model.windowLocked ? Color.accentColor : Color.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .help(model.windowLocked ? "Unlock — follow active window" : "Lock — stay on this window")
+                    .disabled(!model.sessionOn)
+                }
 
                 Text(model.currentWindowLabel.isEmpty ? "Waiting for something readable…" : model.currentWindowLabel)
                     .font(.system(size: 12, weight: .medium))

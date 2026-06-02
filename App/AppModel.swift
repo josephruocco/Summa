@@ -16,6 +16,7 @@ final class AppModel: ObservableObject {
     @Published var currentWindowLabel: String = ""
 
     @Published var sessionOn: Bool = false
+    @Published var windowLocked: Bool = false
     @Published var status: String = "Starting up…"
     @Published var showVocab: Bool = true
     @Published var showRefs: Bool = true
@@ -62,6 +63,7 @@ final class AppModel: ObservableObject {
         ) { [weak self] _ in
             guard let self else { return }
             Task { @MainActor in
+                guard !self.windowLocked else { return }
                 try? await Task.sleep(nanoseconds: 350_000_000)
                 await self.syncToFrontmostWindow(startIfNeeded: self.sessionOn)
             }
@@ -139,6 +141,7 @@ final class AppModel: ObservableObject {
         overlay?.clear()
         currentCapturedWindowID = nil
         sessionOn = false
+        windowLocked = false
         lastVocab = []
         lastRefs = []
         lastHighlightCounts = (0, 0)
@@ -270,6 +273,7 @@ final class AppModel: ObservableObject {
         lastSidebarAnchorX = sidebarAnchorX
         lastHighlightCounts = (result.vocab.count, result.refs.count)
         overlay?.setHighlights(vocab: result.vocab, refs: result.refs, sidebarAnchorX: sidebarAnchorX)
+        overlay?.setOCRTokens(tokens, overlaySize: overlaySize)
 
         Task {
             await self.recorder.ingest(

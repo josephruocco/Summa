@@ -1,0 +1,27 @@
+{
+  "moby_dick_ch42": {
+    "title": "Moby-Dick; or, The Whale",
+    "author": "Herman Melville",
+    "chapter_label": "Chapter 42, \"The Whiteness of the Whale\"",
+    "literary_note": "Dense philosophical prose with biblical, classical, and natural-history allusions; references to whaling cultures, world religions, and Romantic poetry.",
+    "gutenberg_id": 2701,
+    "digest": null,
+    "_digest_note": "Chapter fits well under the ~20k-token full-chapter threshold, so no book digest is generated or needed for this fixture (Phase 1 full-chapter path)."
+  },
+  "plain_call_of_wild": {
+    "title": "The Call of the Wild",
+    "author": "Jack London",
+    "chapter_label": "Chapter I, \"Into the Primitive\" (opening)",
+    "literary_note": "Plain, declarative adventure narrative; minimal allusion density. Included as the 'Hemingway-plain' density-control fixture: correct output on this passage is few or zero annotations.",
+    "gutenberg_id": 215,
+    "digest": null
+  },
+  "bible_adjacent_utc": {
+    "title": "Uncle Tom's Cabin",
+    "author": "Harriet Beecher Stowe",
+    "chapter_label": "Chapter XXVII, \"'This Is the Last of Earth'\" (opening)",
+    "literary_note": "Eva's deathbed scene; dense with biblical allusion and quotation (Psalms, the Beatitudes) alongside direct scriptural paraphrase. Included as the Bible-adjacent density fixture.",
+    "gutenberg_id": 203,
+    "digest": null
+  }
+}

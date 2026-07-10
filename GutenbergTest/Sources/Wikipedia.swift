@@ -2412,7 +2412,9 @@ enum Wikipedia {
         return s
     }
 
-    private static func envValue(_ key: String) -> String? {
+    // Internal (not private) so PremiumAnnotator.swift can reuse the same
+    // ProcessInfo/.env lookup instead of duplicating it.
+    static func envValue(_ key: String) -> String? {
         if let value = ProcessInfo.processInfo.environment[key], !value.isEmpty {
             return value
         }

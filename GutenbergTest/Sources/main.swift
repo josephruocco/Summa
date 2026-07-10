@@ -541,6 +541,11 @@ let maxRefsPerBook  = 40
 let maxVocabPerBook = 30
 let commonWords = CommonWordsLoader.set
 
+// ANNOTATION_QUALITY_MODE=premium switches a book's run to the passage-level
+// PremiumAnnotator pipeline instead of the legacy per-candidate classifier.
+// Defaults to legacy so existing behavior is unchanged unless opted in.
+let annotationQualityMode = (Wikipedia.envValue("ANNOTATION_QUALITY_MODE") ?? "legacy").lowercased()
+
 // MARK: - Score tracking
 
 struct BookRunStats {
@@ -589,6 +594,34 @@ for book in bookList {
     let vocabs = Array(allCandidates.filter { $0.kind == .vocab      }.prefix(maxVocabPerBook))
 
     log("  \(refs.count) ref candidates → Wikipedia lookups, \(vocabs.count) vocab → dictionary")
+
+    if annotationQualityMode == "premium" {
+        log("  premium mode: annotating full chapter paragraph-by-paragraph (\(PremiumAnnotator.model))")
+        let record = await PremiumAnnotator.runChapter(
+            bookId: book.id,
+            chapterTitle: book.chapterTitle,
+            text: text,
+            literaryNote: literaryNotes[book.id]
+        )
+        let totalAnnotations = record.paragraphs.reduce(0) { $0 + $1.annotations.count }
+        log("  \(totalAnnotations) annotations across \(record.paragraphs.count) paragraphs, "
+            + "$\(String(format: "%.3f", record.estimatedCostUSD)) est. "
+            + "(\(record.totalInputTokens) in / \(record.totalOutputTokens) out tokens), "
+            + "\(String(format: "%.1f", record.latencySeconds))s")
+
+        let runsDir = FileManager.default.currentDirectoryPath + "/../tools/runs"
+        try? FileManager.default.createDirectory(atPath: runsDir, withIntermediateDirectories: true)
+        let runPath = "\(runsDir)/\(book.slug)_premium_\(Int(Date().timeIntervalSince1970)).json"
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        if let data = try? encoder.encode(record) {
+            try? data.write(to: URL(fileURLWithPath: runPath))
+            log("  → wrote \(runPath)")
+        }
+        allBookStats.append(BookRunStats(slug: book.slug))
+        log("")
+        continue
+    }
 
     var bookStats = BookRunStats(slug: book.slug)
     var annotations: [DemoAnnotation] = []

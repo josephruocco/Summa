@@ -1,0 +1,324 @@
+import Foundation
+
+// MARK: - Premium annotation pipeline (ANNOTATION_QUALITY_MODE=premium)
+//
+// Legacy mode (Wikipedia.planAnnotation) classifies pre-extracted proper-noun
+// candidates one at a time. Tokenizer.extractCandidates only ever surfaces
+// capitalized phrases, so that gate structurally cannot produce `philology`
+// (archaic sense of an ordinary lowercase word) or most `interpretation`
+// annotations, no matter how good the downstream prompt is.
+//
+// Premium mode instead sends a whole paragraph to the model in one shot and
+// asks it to both find and classify annotation-worthy spans across the full
+// editorial taxonomy, then runs a second "senior editor" pass that critiques
+// the first. Legacy mode is untouched; this is an additive path selected by
+// ANNOTATION_QUALITY_MODE=premium.
+
+enum AnnotationCategory: String, Codable, CaseIterable {
+    case allusion, context, callback, philology, interpretation
+}
+
+struct PassageAnnotation: Codable, Sendable, Equatable {
+    var anchor: String
+    var type: String
+    var note: String
+}
+
+struct TokenUsage: Sendable {
+    var inputTokens: Int = 0
+    var outputTokens: Int = 0
+
+    static func + (lhs: TokenUsage, rhs: TokenUsage) -> TokenUsage {
+        TokenUsage(inputTokens: lhs.inputTokens + rhs.inputTokens,
+                   outputTokens: lhs.outputTokens + rhs.outputTokens)
+    }
+
+    // ponytail: hardcoded Claude Sonnet pricing ($3/M in, $15/M out) as an
+    // estimate for the cost-per-chapter logging the spec asks for. Update
+    // here if pricing changes; not worth a config file for two numbers.
+    var estimatedCostUSD: Double {
+        Double(inputTokens) / 1_000_000 * 3.0 + Double(outputTokens) / 1_000_000 * 15.0
+    }
+}
+
+enum PremiumAnnotator {
+    static let model = Wikipedia.envValue("ANNOTATION_MODEL") ?? "claude-sonnet-4-6"
+
+    // ~4 chars/token heuristic (matches the truncation heuristics already
+    // used elsewhere in Wikipedia.swift). Below this, inline the full chapter;
+    // above it, fall back to the static per-book literary note as a digest.
+    private static let inlineChapterCharBudget = 20_000 * 4
+
+    struct AnnotateResult {
+        var annotations: [PassageAnnotation]
+        var usage: TokenUsage
+        var addedByCritique: Int
+        var cutByCritique: Int
+    }
+
+    static func annotate(
+        passage: String,
+        chapterText: String,
+        bookContext: String,
+        literaryNote: String?
+    ) async -> AnnotateResult {
+        let contextBlock = buildContextBlock(chapterText: chapterText, literaryNote: literaryNote)
+        var usage = TokenUsage()
+
+        guard let (firstText, u1) = await callModel(
+            firstPassPrompt(passage: passage, contextBlock: contextBlock, bookContext: bookContext)
+        ) else {
+            return AnnotateResult(annotations: [], usage: usage, addedByCritique: 0, cutByCritique: 0)
+        }
+        usage = usage + u1
+        let first = parseAnnotationArray(firstText)
+
+        guard let (critiqueText, u2) = await callModel(
+            critiquePrompt(passage: passage, contextBlock: contextBlock, bookContext: bookContext, firstPass: first)
+        ) else {
+            return AnnotateResult(annotations: repairAnchors(first, passage: passage),
+                                   usage: usage, addedByCritique: 0, cutByCritique: 0)
+        }
+        usage = usage + u2
+
+        let (misses, cuts) = parseCritique(critiqueText)
+        let kept = first.filter { ann in !cuts.contains { $0.lowercased() == ann.anchor.lowercased() } }
+        let merged = kept + misses
+
+        return AnnotateResult(
+            annotations: repairAnchors(merged, passage: passage),
+            usage: usage,
+            addedByCritique: misses.count,
+            cutByCritique: first.count - kept.count
+        )
+    }
+
+    // MARK: - Context block (Phase 1: full chapter or digest)
+
+    private static func buildContextBlock(chapterText: String, literaryNote: String?) -> String {
+        if chapterText.count <= inlineChapterCharBudget {
+            return "Full chapter text (for spotting callbacks to earlier parts of this same chapter):\n\(chapterText)"
+        }
+        // ponytail: the current fetch pipeline only ever retrieves a single
+        // chapter, so there's no prior-chapter text to summarize into a real
+        // book digest yet. Fall back to the static per-book literary note
+        // (tools/literary_notes.json) as a coarse digest. Upgrade to a
+        // generated multi-chapter digest once the pipeline fetches more than
+        // one chapter per book.
+        let note = literaryNote.map { "Book digest: \($0)" } ?? "Book digest: (none available)"
+        return "\(note)\n\n(Chapter too long to inline in full; only the passage below and this digest are available as context.)"
+    }
+
+    // MARK: - Prompts (Phase 3: taxonomy + few-shot + schema)
+
+    private static func firstPassPrompt(passage: String, contextBlock: String, bookContext: String) -> String {
+        """
+        You are an editor preparing a Norton Critical Edition of \(bookContext).
+        Your reader is intelligent and well-read but not a specialist in this
+        book's period or references — annotate what they would miss, not what
+        they'd already catch.
+
+        \(contextBlock)
+
+        <passage>
+        \(passage)
+        </passage>
+
+        Annotate the passage inside <passage> above — it is the target. The
+        surrounding chapter text/digest is context for understanding it, not
+        something to annotate itself.
+
+        Return a JSON array. Each element:
+        {"anchor": "<exact verbatim substring of the passage>", "type": "<allusion|context|callback|philology|interpretation>", "note": "<= 60 words>"}
+
+        Types:
+        - allusion: biblical, classical, literary, or mythological sources.
+        - context: historical, period, nautical, or ethnographic facts needed to parse the passage.
+        - callback: a reference to an earlier moment in this same book (use the chapter text above).
+        - philology: an archaic or shifted word meaning, or etymology, where it carries the sentence.
+        - interpretation: a critical reading, explicitly framed as a reading, not a fact. At most 1-2 per passage.
+
+        Rules:
+        - Annotate only what a smart, widely-read but non-specialist reader would miss. Never define common words. Never summarize the plot. No annotation should just restate the passage.
+        - Density: roughly one annotation per 2-4 sentences on dense, allusion-heavy text; fewer on plain text. Zero annotations on a plain paragraph is a correct, valid output — do not pad to hit a quota.
+        - Terse, factual, confident register. No "this suggests that the author may be...", no hedging, no throat-clearing.
+        - anchor must be copied verbatim, character-for-character, from the passage.
+
+        Example (a short public-domain passage, not from this book):
+
+        Passage: "It was the best of times, it was the worst of times, it was the age of wisdom, it was the age of foolishness, in the epoch of belief, in the epoch of incredulity."
+
+        [
+          {"anchor": "it was the age of wisdom, it was the age of foolishness", "type": "interpretation", "note": "Reading: the unresolved antitheses refuse to pick a single verdict on the era, setting up the novel's argument that revolutionary periods contain their opposites at once rather than in sequence."},
+          {"anchor": "epoch", "type": "philology", "note": "From Greek epokhe, \\"a fixed point in time\\" — a scientific/scholarly register raised above the plainer \\"age\\" or \\"time\\" used elsewhere in the sentence."}
+        ]
+
+        Return only the JSON array, no other text.
+        """
+    }
+
+    private static func critiquePrompt(passage: String, contextBlock: String, bookContext: String, firstPass: [PassageAnnotation]) -> String {
+        let firstPassJSON = (try? JSONEncoder().encode(firstPass)).flatMap { String(data: $0, encoding: .utf8) } ?? "[]"
+        return """
+        You are the senior editor of a Norton Critical Edition of \(bookContext),
+        reviewing a junior editor's annotations of one passage before publication.
+
+        \(contextBlock)
+
+        <passage>
+        \(passage)
+        </passage>
+
+        Junior editor's annotations:
+        \(firstPassJSON)
+
+        List:
+        (a) significant allusions, callbacks, or philological points they MISSED — only genuinely valuable additions, same schema as the annotations above.
+        (b) annotations that are wrong, obvious, padding, or restate the passage — return just their anchor text so they can be cut.
+
+        Return only this JSON object, no other text:
+        {"misses": [{"anchor": "...", "type": "allusion|context|callback|philology|interpretation", "note": "..."}], "cuts": ["anchor text", "..."]}
+        """
+    }
+
+    // MARK: - Anchor verification/repair
+
+    // Reject/repair any annotation whose anchor isn't a verbatim substring of
+    // the passage, so the UI can always highlight what the model claims to.
+    private static func repairAnchors(_ annotations: [PassageAnnotation], passage: String) -> [PassageAnnotation] {
+        annotations.compactMap { ann in
+            if passage.contains(ann.anchor) { return ann }
+            let trimmed = ann.anchor.trimmingCharacters(in: .whitespacesAndNewlines.union(CharacterSet(charactersIn: "\"'.,;:")))
+            if !trimmed.isEmpty, passage.contains(trimmed) {
+                var repaired = ann
+                repaired.anchor = trimmed
+                return repaired
+            }
+            FileHandle.standardError.write("  ! dropped annotation with non-matching anchor: \(ann.anchor)\n".data(using: .utf8)!)
+            return nil
+        }
+    }
+
+    // MARK: - Model call + JSON parsing
+
+    private static func callModel(_ prompt: String) async -> (String, TokenUsage)? {
+        guard let apiKey = Wikipedia.envValue("ANTHROPIC_API_KEY"), !apiKey.isEmpty,
+              let url = URL(string: "https://api.anthropic.com/v1/messages") else { return nil }
+
+        let body: [String: Any] = [
+            "model": model,
+            "max_tokens": 2000,
+            "temperature": 0,
+            "messages": [["role": "user", "content": prompt]]
+        ]
+        guard let bodyData = try? JSONSerialization.data(withJSONObject: body) else { return nil }
+
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.timeoutInterval = 60
+        req.setValue(apiKey, forHTTPHeaderField: "x-api-key")
+        req.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = bodyData
+
+        guard let (data, resp) = try? await URLSession.shared.data(for: req),
+              (resp as? HTTPURLResponse)?.statusCode == 200,
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let content = (json["content"] as? [[String: Any]])?.first,
+              let text = content["text"] as? String else { return nil }
+
+        let usageJSON = json["usage"] as? [String: Any]
+        let usage = TokenUsage(
+            inputTokens: usageJSON?["input_tokens"] as? Int ?? 0,
+            outputTokens: usageJSON?["output_tokens"] as? Int ?? 0
+        )
+        return (text, usage)
+    }
+
+    private static func parseAnnotationArray(_ text: String) -> [PassageAnnotation] {
+        guard let jsonString = extractJSONArray(from: text),
+              let data = jsonString.data(using: .utf8),
+              let raw = try? JSONDecoder().decode([PassageAnnotation].self, from: data) else { return [] }
+        return raw.filter { AnnotationCategory(rawValue: $0.type) != nil && !$0.anchor.isEmpty }
+    }
+
+    private static func parseCritique(_ text: String) -> (misses: [PassageAnnotation], cuts: [String]) {
+        struct Critique: Codable { var misses: [PassageAnnotation]; var cuts: [String] }
+        guard let jsonString = extractJSONObjectString(from: text),
+              let data = jsonString.data(using: .utf8),
+              let critique = try? JSONDecoder().decode(Critique.self, from: data) else { return ([], []) }
+        let validMisses = critique.misses.filter { AnnotationCategory(rawValue: $0.type) != nil && !$0.anchor.isEmpty }
+        return (validMisses, critique.cuts)
+    }
+
+    private static func extractJSONArray(from text: String) -> String? {
+        guard let start = text.firstIndex(of: "["), let end = text.lastIndex(of: "]") else { return nil }
+        return String(text[start...end])
+    }
+
+    private static func extractJSONObjectString(from text: String) -> String? {
+        guard let start = text.firstIndex(of: "{"), let end = text.lastIndex(of: "}") else { return nil }
+        return String(text[start...end])
+    }
+
+    // MARK: - Chapter-level run (Phase 5 dump for eval/run.sh-style diffing)
+
+    // Skips very short fragments (chapter headings, single-line breaks) that
+    // aren't worth a full annotation call.
+    private static let minParagraphWords = 15
+
+    static func runChapter(bookId: Int, chapterTitle: String, text: String, literaryNote: String?) async -> PremiumRunRecord {
+        let paragraphs = text.components(separatedBy: "\n\n")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { $0.split(separator: " ").count >= minParagraphWords }
+
+        var records: [PremiumRunRecord.ParagraphRecord] = []
+        var totalUsage = TokenUsage()
+        let start = Date()
+
+        for (i, para) in paragraphs.enumerated() {
+            let result = await annotate(passage: para, chapterText: text, bookContext: chapterTitle, literaryNote: literaryNote)
+            totalUsage = totalUsage + result.usage
+            let msg = "  [\(i + 1)/\(paragraphs.count)] \(result.annotations.count) annotations"
+                + " (+\(result.addedByCritique)/-\(result.cutByCritique) from critique)\n"
+            FileHandle.standardError.write(msg.data(using: .utf8)!)
+            records.append(.init(
+                passage: para,
+                annotations: result.annotations,
+                addedByCritique: result.addedByCritique,
+                cutByCritique: result.cutByCritique
+            ))
+        }
+
+        return PremiumRunRecord(
+            bookId: bookId,
+            chapterTitle: chapterTitle,
+            model: model,
+            generatedAt: ISO8601DateFormatter().string(from: Date()),
+            paragraphs: records,
+            totalInputTokens: totalUsage.inputTokens,
+            totalOutputTokens: totalUsage.outputTokens,
+            estimatedCostUSD: totalUsage.estimatedCostUSD,
+            latencySeconds: Date().timeIntervalSince(start)
+        )
+    }
+}
+
+struct PremiumRunRecord: Codable {
+    var bookId: Int
+    var chapterTitle: String
+    var model: String
+    var generatedAt: String
+    var paragraphs: [ParagraphRecord]
+    var totalInputTokens: Int
+    var totalOutputTokens: Int
+    var estimatedCostUSD: Double
+    var latencySeconds: Double
+
+    struct ParagraphRecord: Codable {
+        var passage: String
+        var annotations: [PassageAnnotation]
+        var addedByCritique: Int
+        var cutByCritique: Int
+    }
+}

@@ -25,6 +25,31 @@ struct WikiResult: Codable, Sendable, Hashable {
     var thumbnailURL: String?
     var debug: String?
     var score: Double?
+    // A short editorial note written by the annotation planner. When present,
+    // the overlay renders this instead of the Wikipedia extract. Glosses cover
+    // allusions, period descriptors, and thematic references that do not map
+    // cleanly onto a single Wikipedia article.
+    var gloss: String? = nil
+}
+
+// Result of the first-pass annotation planner: decides whether a phrase becomes
+// a Wikipedia link, a written gloss, or is suppressed entirely.
+struct AnnotationPlan: Codable, Sendable {
+    var annotationType: String          // "wikipedia" | "gloss" | "suppress"
+    var confidence: Double
+    var wikipediaTitle: String?
+    var glossTitle: String?
+    var gloss: String?
+    var reason: String
+
+    enum CodingKeys: String, CodingKey {
+        case annotationType = "annotation_type"
+        case confidence
+        case wikipediaTitle = "wikipedia_title"
+        case glossTitle = "gloss_title"
+        case gloss
+        case reason
+    }
 }
 
 struct WikiCandidateSet: Codable, Sendable, Hashable {
@@ -79,7 +104,222 @@ enum Wikipedia {
     private static let ambiguousBandLow: Double = 0.50
     private static let ambiguousBandHigh: Double = 0.72
 
+    // MARK: - Annotation planner (gloss-first)
+
+    // First-pass classifier. Decides, from the phrase and its surrounding text,
+    // whether the annotation should be a Wikipedia link, a written gloss, or
+    // suppressed. Unlike the legacy title-or-none AI, this can produce a note
+    // for allusions and period descriptors that have no single Wikipedia target.
+    static func planAnnotation(
+        _ term: String,
+        contextBefore: String? = nil,
+        contextAfter: String? = nil,
+        bookContext: String? = nil
+    ) async -> AnnotationPlan? {
+        let requested = term.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !requested.isEmpty else { return nil }
+
+        let contextSnippet = [contextBefore, contextAfter]
+            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .joined(separator: " … ")
+        let truncatedContext = contextSnippet.count > 400
+            ? String(contextSnippet.prefix(400)) + "…"
+            : contextSnippet
+        let targetSentence = [contextBefore?.trimmingCharacters(in: .whitespacesAndNewlines),
+                              "[[\(requested)]]",
+                              contextAfter?.trimmingCharacters(in: .whitespacesAndNewlines)]
+            .compactMap { $0 }
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+        let truncatedSentence = targetSentence.count > 700
+            ? String(targetSentence.prefix(700)) + "…"
+            : targetSentence
+        let sourceLine = bookContext.map { "Source: \($0)\n        " } ?? ""
+
+        let prompt = """
+        You are a scholarly editor annotating a text, in the manner of a Norton Critical Edition.
+
+        \(sourceLine)Target phrase: "\(requested)"
+        Target sentence: "\(truncatedSentence)"
+        Nearby context: "…\(truncatedContext)…"
+
+        Return a JSON object with exactly these fields:
+        {
+          "annotation_type": "wikipedia",
+          "confidence": 0.0,
+          "wikipedia_title": "Exact article title or null",
+          "gloss_title": "Short label for the note or null",
+          "gloss": "One-sentence editorial note or null",
+          "reason": "brief reason"
+        }
+
+        Annotation types:
+        - wikipedia: a true linkable reference with a stable, unambiguous encyclopedic target.
+        - gloss: a meaningful literary, ritual, adjectival, cultural, historical, or geographic reference where a short note serves the reader better than a brittle title match. This is the default for allusions, royal epithets, period descriptors, and archaic terms.
+        - suppress: chapter headings, generic descriptors, loose symbolism, common exclamations ("Thank God"), sentence fragments, and minor fictional characters with no dedicated article.
+
+        Rules:
+        - Prefer wikipedia only when a clear, well-known article names the referent exactly.
+        - Prefer gloss whenever the passage clearly means something a reader would want explained but the phrase does not stably name one safe Wikipedia article. When in doubt between wikipedia and suppress, choose gloss.
+        - Royal epithets and archaic multi-word symbolic labels usually belong in gloss.
+        - Never suggest a wikipedia_title ending in "nationalism", "separatism", or "independence movement" unless the passage explicitly discusses a political movement; use the cultural/ethnic article instead.
+
+        Gloss writing:
+        - Write the gloss as a SINGLE terse, confident sentence in a scholarly editor's voice.
+        - State the fact directly. Do not begin with "This refers to" or hedge with "likely"/"perhaps".
+        - If the text is factually mistaken, say so plainly (e.g. "white, but Melville is wrong; the colors of the Austrian Empire were black and gold").
+        - For a gloss you may still set wikipedia_title to a relevant article to link inside the note, but the note must stand on its own.
+
+        Examples:
+        - "Great Jove" -> wikipedia / "Jupiter (god)"
+        - "Romish" -> wikipedia / "Catholic Church"
+        - "Albino" -> wikipedia / "Albinism"
+        - "Lord of the White Elephants" -> gloss ("a title of the kings of Burma, who prized white elephants as emblems of sovereignty")
+        - "Red Men of America" -> gloss ("a period label for the Indigenous peoples of North America")
+        - "Cæsarian" -> gloss (adjectival imperial epithet, no single stable article)
+        - "Whiteness of the Whale" -> suppress (chapter heading)
+        - "Thank God" -> suppress (exclamation, not a reference)
+
+        Constraints:
+        - Set confidence >= 0.90 only when highly confident.
+        - Return only the JSON object.
+        """
+
+        for attempt in 1...2 {
+            if let plan = await claudeAnnotationPlan(prompt: prompt, requested: requested) {
+                return plan
+            }
+            if attempt == 1 {
+                try? await Task.sleep(nanoseconds: 500_000_000)
+            }
+        }
+        return nil
+    }
+
+    private static func claudeAnnotationPlan(prompt: String, requested: String) async -> AnnotationPlan? {
+        guard let apiKey = envValue("ANTHROPIC_API_KEY"), !apiKey.isEmpty else { return nil }
+
+        let body: [String: Any] = [
+            "model": "claude-sonnet-4-6",
+            "max_tokens": 240,
+            "temperature": 0,
+            "messages": [["role": "user", "content": prompt]]
+        ]
+
+        guard let bodyData = try? JSONSerialization.data(withJSONObject: body),
+              let url = URL(string: "https://api.anthropic.com/v1/messages") else { return nil }
+
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.timeoutInterval = 15
+        req.setValue(apiKey, forHTTPHeaderField: "x-api-key")
+        req.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = bodyData
+
+        guard let (data, resp) = try? await URLSession.shared.data(for: req),
+              (resp as? HTTPURLResponse)?.statusCode == 200,
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let content = (json["content"] as? [[String: Any]])?.first,
+              let text = content["text"] as? String else { return nil }
+
+        return parsedAnnotationPlan(text, requested: requested)
+    }
+
+    private static func parsedAnnotationPlan(_ text: String, requested: String) -> AnnotationPlan? {
+        guard let jsonData = extractJSONObject(from: text)?.data(using: .utf8),
+              let plan = try? JSONDecoder().decode(AnnotationPlan.self, from: jsonData) else { return nil }
+
+        let annotationType = plan.annotationType.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard ["wikipedia", "gloss", "suppress"].contains(annotationType) else { return nil }
+        guard plan.confidence >= 0, plan.confidence <= 1 else { return nil }
+
+        let cleanTitle = plan.wikipediaTitle?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanGloss = plan.gloss?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if annotationType == "wikipedia", (cleanTitle?.isEmpty ?? true) { return nil }
+        if annotationType == "gloss", (cleanGloss?.isEmpty ?? true) { return nil }
+
+        return AnnotationPlan(
+            annotationType: annotationType,
+            confidence: plan.confidence,
+            wikipediaTitle: (cleanTitle?.isEmpty ?? true) ? nil : cleanTitle,
+            glossTitle: plan.glossTitle?.trimmingCharacters(in: .whitespacesAndNewlines),
+            gloss: (cleanGloss?.isEmpty ?? true) ? nil : cleanGloss,
+            reason: plan.reason.trimmingCharacters(in: .whitespacesAndNewlines)
+        )
+    }
+
+    // Builds a canonical article URL from a Wikipedia title (spaces → underscores).
+    static func wikipediaURL(forTitle title: String) -> String? {
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        let slug = trimmed.replacingOccurrences(of: " ", with: "_")
+        guard let encoded = slug.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) else { return nil }
+        return "https://en.wikipedia.org/wiki/\(encoded)"
+    }
+
+    private static func extractJSONObject(from text: String) -> String? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.hasPrefix("{"), trimmed.hasSuffix("}") { return trimmed }
+        if let start = trimmed.firstIndex(of: "{"), let end = trimmed.lastIndex(of: "}") {
+            return String(trimmed[start...end])
+        }
+        return nil
+    }
+
     static func lookupWithCandidates(
+        _ term: String,
+        contextBefore: String? = nil,
+        contextAfter: String? = nil,
+        bookContext: String? = nil
+    ) async -> WikiLookupResult {
+        // Gloss-first gate: ask the planner what kind of annotation this should
+        // be before running the Wikipedia pipeline. Gloss and suppress short-
+        // circuit; only "wikipedia" falls through to article resolution below.
+        if let plan = await planAnnotation(term, contextBefore: contextBefore,
+                                           contextAfter: contextAfter, bookContext: bookContext) {
+            switch plan.annotationType {
+            case "suppress":
+                // Only hide a reference when the planner is confident it is noise;
+                // an uncertain suppress falls through so the article pipeline can try.
+                if plan.confidence >= 0.90 {
+                    return .single(WikiResult(
+                        status: .suppressed,
+                        requested: term,
+                        title: nil,
+                        extract: nil,
+                        pageURL: nil,
+                        thumbnailURL: nil,
+                        debug: "planner: suppress — \(plan.reason)",
+                        score: plan.confidence
+                    ))
+                }
+            case "gloss":
+                // A gloss is low-risk: render it at moderate confidence rather
+                // than fall back to brittle article matching that would drop it.
+                if plan.confidence >= 0.55, let gloss = plan.gloss, !gloss.isEmpty {
+                    return .single(WikiResult(
+                        status: .ok,
+                        requested: term,
+                        title: plan.glossTitle ?? term,
+                        extract: nil,
+                        pageURL: plan.wikipediaTitle.flatMap(wikipediaURL(forTitle:)),
+                        thumbnailURL: nil,
+                        debug: "planner: gloss — \(plan.reason)",
+                        score: plan.confidence,
+                        gloss: gloss
+                    ))
+                }
+            default:
+                break // "wikipedia" → fall through to the article pipeline
+            }
+        }
+        return await resolveWikipediaCandidates(term, contextBefore: contextBefore,
+                                                contextAfter: contextAfter, bookContext: bookContext)
+    }
+
+    private static func resolveWikipediaCandidates(
         _ term: String,
         contextBefore: String? = nil,
         contextAfter: String? = nil,

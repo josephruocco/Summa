@@ -417,6 +417,9 @@ struct OverlayView: View {
         }
 
         private func wikiText(_ result: WikiResult) -> String {
+            // A planner gloss is the annotation itself — show it verbatim, not
+            // trimmed to a first sentence like a Wikipedia extract.
+            if let gloss = result.gloss, !gloss.isEmpty { return gloss }
             switch result.status {
             case .ok:
                 return firstSentence(result.extract) ?? "No summary text found."
@@ -531,6 +534,7 @@ struct OverlayView: View {
         }
 
         private func wikiText(_ r: WikiResult) -> String {
+            if let gloss = r.gloss, !gloss.isEmpty { return gloss }
             switch r.status {
             case .ok:
                 return firstSentence(r.extract) ?? "No summary text found."
@@ -592,7 +596,7 @@ struct OverlayView: View {
                                 .foregroundStyle(.primary)
                                 .frame(maxWidth: .infinity, alignment: .leading)
 
-                            if let summary = firstSentence(candidate.extract), !summary.isEmpty {
+                            if let summary = candidate.gloss ?? firstSentence(candidate.extract), !summary.isEmpty {
                                 Text(summary)
                                     .font(.system(size: 11))
                                     .foregroundStyle(.secondary)

@@ -1,0 +1,69 @@
+Building for debugging...
+[0/3] Write swift-version--58304C5D6DBC2206.txt
+Build of product 'gutenberg-test' complete! (0.18s)
+── Moby-Dick (ID 2701)
+  3610 words
+  40 ref candidates → Wikipedia lookups, 30 vocab → dictionary
+  ~ Whiteness of the Whale → suppressed  0.99
+  🤖 Using pre-approved title: "Ahab" → Captain Ahab
+  ✓ Ahab → ok [Captain Ahab] 0.95
+  ✓ Moby Dick → ok [Moby-Dick] 1.00
+  🤖 Using pre-approved title: "Pegu" → Pegu
+  ✓ Pegu → ok [Bago, Myanmar] 0.95
+  ✓ Lord of the White Elephants → gloss  0.95
+  🤖 Using pre-approved title: "Siam" → Siam
+  ✓ Siam → ok [Thailand] 0.95
+  ✓ Hanoverian → ok [House of Hanover] 1.00
+  ✓ Austrian Empire → ok [Austrian Empire] 1.00
+  ✓ Cæsarian → gloss  0.98
+  ✓ Red Men of America → gloss  0.95
+  🤖 Using pre-approved title: "Great Jove" → Jupiter (god)
+  ✓ Great Jove → ok [Jupiter (god)] 0.95
+  🤖 Using pre-approved title: "Iroquois" → Iroquois
+  ✓ Iroquois → ok [Haudenosaunee] 0.95
+  ✓ White Dog → gloss  0.98
+  ✓ Great Spirit → ok [Great Spirit] 1.00
+  🤖 Using pre-approved title: "Romish" → Catholic Church
+  ✓ Romish → ok [Catholic Church] 0.95
+  ✓ Vision of St John → ok [Vision of St. John on Patmos] 1.00
+  🤖 Using pre-approved title: "Holy One" → God in Christianity
+  ✓ Holy One → ok [God in Christianity] 0.95
+  ✓ Requiem → ok [Requiem] 1.00
+  ~ Requin Bethink → suppressed  0.99
+  🤖 Using pre-approved title: "Coleridge" → Samuel Taylor Coleridge
+  ✓ Coleridge → ok [Samuel Taylor Coleridge] 0.95
+  🤖 Using pre-approved title: "Goney" → Wandering albatross
+  ✓ Goney → ok [Snowy albatross] 0.95
+  🤖 Using pre-approved title: "Coleridge's" → Samuel Taylor Coleridge
+  ✓ Coleridge's → ok [Samuel Taylor Coleridge] 0.95
+  ✓ White Steed of the Prairies → gloss  0.95
+  🤖 Using pre-approved title: "Xerxes" → Xerxes I
+  ✓ Xerxes → ok [Xerxes I] 0.95
+  ✓ Rocky Mountains → ok [Rocky Mountains] 1.00
+  ✓ Alleghanies → ok [Allegheny Mountains] 1.00
+  🤖 AI decision → annotate=false match_type=none confidence=0.40 title=nil reason=The 'White Steed' here is a legendary white buffalo or horse of the Great Plains described in Melville's prose as a mythic creature revered by Native Americans — it is a literary/symbolic figure within the chapter's meditation on whiteness, not a stable encyclopedic referent. The Wikipedia article 'The White Steed' (if it exists) likely refers to a different specific entity, and no single Wikipedia article clearly and unambiguously corresponds to this passage's intended referent.
+  🤖 AI rejected "White Steed" (confidence 0.40, match_type none) — suppressing
+  ~ White Steed → suppressed [The White Steed] 0.88
+  🤖 Using pre-approved title: "Albatross" → Albatross
+  ✓ Albatross → ok [Albatross] 0.95
+  🤖 Using pre-approved title: "Albino" → Albinism
+  ✓ Albino → ok [Albinism] 0.95
+  🤖 Using pre-approved title: "Southern Seas" → Southern Ocean
+  ✓ Southern Seas → ok [Southern Ocean] 0.95
+  ✓ White Squall → ok [White squall] 1.00
+  🤖 Using pre-approved title: "Froissart" → Jean Froissart
+  ✓ Froissart → ok [Jean Froissart] 0.95
+  🤖 AI decision → annotate=true match_type=exact confidence=0.95 title=The White Hoods reason=In context this names the medieval faction at Ghent from Froissart, not a generic white hood image; the historical group is the intended referent.
+  ✓ White Hoods of Ghent → ok [The White Hoods] 0.95
+  🤖 Using pre-approved title: "Whitsuntide" → Whitsunday
+  ✓ Whitsuntide → ok [Whitsun] 0.95
+  ~ Protestant of the Middle American States → suppressed  0.98
+  ✓ White Friar → gloss  0.96
+  🤖 Using pre-approved title: "White Nun" → Norbertines
+  ✓ White Nun → ok [Premonstratensians] 0.95
+  ✓ White Tower of London → ok [White Tower (Tower of London)] 1.00
+  ✓ Byward Tower → ok [Byward Tower] 1.00
+  ✓ White Mountains of New Hampshire → ok [White Mountains (New England)] 1.00
+
+Scores appended to /Users/josephruocco/summa_site/demos/scores.log
+Done.

@@ -185,15 +185,39 @@ enum PremiumAnnotator {
 
     // Reject/repair any annotation whose anchor isn't a verbatim substring of
     // the passage, so the UI can always highlight what the model claims to.
+    // Model output consistently uses straight quotes even when the source
+    // passage has curly ones (or vice versa) -- normalize before falling
+    // back to a drop, so a correct annotation isn't lost over punctuation
+    // style. Substitution is 1-for-1 per Character, so character offsets
+    // computed on the normalized string map directly back onto the original.
+    private static func normalizeQuotes(_ s: String) -> String {
+        let map: [Character: Character] = ["\u{201C}": "\"", "\u{201D}": "\"", "\u{2018}": "'", "\u{2019}": "'"]
+        return String(s.map { map[$0] ?? $0 })
+    }
+
     private static func repairAnchors(_ annotations: [PassageAnnotation], passage: String) -> [PassageAnnotation] {
-        annotations.compactMap { ann in
+        let normalizedPassage = normalizeQuotes(passage)
+        return annotations.compactMap { ann in
             if passage.contains(ann.anchor) { return ann }
+
             let trimmed = ann.anchor.trimmingCharacters(in: .whitespacesAndNewlines.union(CharacterSet(charactersIn: "\"'.,;:")))
             if !trimmed.isEmpty, passage.contains(trimmed) {
                 var repaired = ann
                 repaired.anchor = trimmed
                 return repaired
             }
+
+            let normalizedAnchor = normalizeQuotes(ann.anchor)
+            if !normalizedAnchor.isEmpty, let range = normalizedPassage.range(of: normalizedAnchor) {
+                let start = normalizedPassage.distance(from: normalizedPassage.startIndex, to: range.lowerBound)
+                let length = normalizedPassage.distance(from: range.lowerBound, to: range.upperBound)
+                let lower = passage.index(passage.startIndex, offsetBy: start)
+                let upper = passage.index(lower, offsetBy: length)
+                var repaired = ann
+                repaired.anchor = String(passage[lower..<upper])
+                return repaired
+            }
+
             FileHandle.standardError.write("  ! dropped annotation with non-matching anchor: \(ann.anchor)\n".data(using: .utf8)!)
             return nil
         }
@@ -267,17 +291,15 @@ enum PremiumAnnotator {
     // aren't worth a full annotation call.
     private static let minParagraphWords = 15
 
-    static func runChapter(bookId: Int, chapterTitle: String, text: String, literaryNote: String?) async -> PremiumRunRecord {
-        let paragraphs = text.components(separatedBy: "\n\n")
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { $0.split(separator: " ").count >= minParagraphWords }
+    static func runChapter(bookId: Int, chapterTitle: String, paragraphs rawParagraphs: [String], chapterText: String, literaryNote: String?) async -> PremiumRunRecord {
+        let paragraphs = rawParagraphs.filter { $0.split(separator: " ").count >= minParagraphWords }
 
         var records: [PremiumRunRecord.ParagraphRecord] = []
         var totalUsage = TokenUsage()
         let start = Date()
 
         for (i, para) in paragraphs.enumerated() {
-            let result = await annotate(passage: para, chapterText: text, bookContext: chapterTitle, literaryNote: literaryNote)
+            let result = await annotate(passage: para, chapterText: chapterText, bookContext: chapterTitle, literaryNote: literaryNote)
             totalUsage = totalUsage + result.usage
             let msg = "  [\(i + 1)/\(paragraphs.count)] \(result.annotations.count) annotations"
                 + " (+\(result.addedByCritique)/-\(result.cutByCritique) from critique)\n"

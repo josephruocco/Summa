@@ -167,6 +167,36 @@ extension String {
     }
 }
 
+// source.plainText collapses all whitespace (including paragraph breaks) to
+// single spaces for the flat-token Tokenizer pipeline, so it can't be split
+// back into paragraphs. source.chapterHTML still has the real <p> tags from
+// Gutenberg's markup -- use those instead when paragraph boundaries matter
+// (premium mode's passage-per-call annotation).
+func paragraphsFromChapterHTML(_ html: String) -> [String] {
+    html.components(separatedBy: "<p")
+        .dropFirst()
+        .compactMap { chunk -> String? in
+            guard let tagEnd = chunk.firstIndex(of: ">") else { return nil }
+            let inner = chunk[chunk.index(after: tagEnd)...]
+            let plain = inner
+                .replacingOccurrences(of: #"<[^>]+>"#, with: " ", options: .regularExpression)
+                .replacingOccurrences(of: "&amp;", with: "&")
+                .replacingOccurrences(of: "&lt;", with: "<")
+                .replacingOccurrences(of: "&gt;", with: ">")
+                .replacingOccurrences(of: "&quot;", with: "\"")
+                .replacingOccurrences(of: "&#39;", with: "'")
+                .replacingOccurrences(of: "&mdash;", with: "—")
+                .replacingOccurrences(of: "&ndash;", with: "–")
+                .replacingOccurrences(of: "&rsquo;", with: "\u{2019}")
+                .replacingOccurrences(of: "&lsquo;", with: "\u{2018}")
+                .replacingOccurrences(of: "&ldquo;", with: "\u{201C}")
+                .replacingOccurrences(of: "&rdquo;", with: "\u{201D}")
+                .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            return plain.isEmpty ? nil : plain
+        }
+}
+
 func plainToHTML(_ text: String) -> String {
     text.components(separatedBy: "\n\n")
         .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
@@ -600,7 +630,8 @@ for book in bookList {
         let record = await PremiumAnnotator.runChapter(
             bookId: book.id,
             chapterTitle: book.chapterTitle,
-            text: text,
+            paragraphs: paragraphsFromChapterHTML(source.chapterHTML),
+            chapterText: text,
             literaryNote: literaryNotes[book.id]
         )
         let totalAnnotations = record.paragraphs.reduce(0) { $0 + $1.annotations.count }

@@ -22,6 +22,11 @@ struct PassageAnnotation: Codable, Sendable, Equatable {
     var anchor: String
     var type: String
     var note: String
+    // Populated only by mergeLegacyGrounding, when the legacy per-candidate
+    // Wikipedia/gloss planner confidently resolves the same span. Absent
+    // (nil) for annotations that came straight from the LLM passage pass.
+    var wikipediaTitle: String? = nil
+    var wikipediaURL: String? = nil
 }
 
 struct TokenUsage: Sendable {
@@ -52,8 +57,12 @@ enum PremiumAnnotator {
     struct AnnotateResult {
         var annotations: [PassageAnnotation]
         var usage: TokenUsage
-        var addedByCritique: Int
-        var cutByCritique: Int
+        // Full annotations, not just counts, so a run's JSON dump can show
+        // exactly what the critique pass added or cut and why -- counts alone
+        // can't tell you whether a specific expected annotation was ever
+        // proposed and then cut, or never proposed at all.
+        var addedByCritique: [PassageAnnotation]
+        var cutByCritique: [PassageAnnotation]
     }
 
     static func annotate(
@@ -68,7 +77,7 @@ enum PremiumAnnotator {
         guard let (firstText, u1) = await callModel(
             firstPassPrompt(passage: passage, contextBlock: contextBlock, bookContext: bookContext)
         ) else {
-            return AnnotateResult(annotations: [], usage: usage, addedByCritique: 0, cutByCritique: 0)
+            return AnnotateResult(annotations: [], usage: usage, addedByCritique: [], cutByCritique: [])
         }
         usage = usage + u1
         let first = parseAnnotationArray(firstText)
@@ -77,19 +86,20 @@ enum PremiumAnnotator {
             critiquePrompt(passage: passage, contextBlock: contextBlock, bookContext: bookContext, firstPass: first)
         ) else {
             return AnnotateResult(annotations: repairAnchors(first, passage: passage),
-                                   usage: usage, addedByCritique: 0, cutByCritique: 0)
+                                   usage: usage, addedByCritique: [], cutByCritique: [])
         }
         usage = usage + u2
 
         let (misses, cuts) = parseCritique(critiqueText)
+        let cutAnnotations = first.filter { ann in cuts.contains { $0.lowercased() == ann.anchor.lowercased() } }
         let kept = first.filter { ann in !cuts.contains { $0.lowercased() == ann.anchor.lowercased() } }
         let merged = kept + misses
 
         return AnnotateResult(
             annotations: repairAnchors(merged, passage: passage),
             usage: usage,
-            addedByCritique: misses.count,
-            cutByCritique: first.count - kept.count
+            addedByCritique: misses,
+            cutByCritique: cutAnnotations
         )
     }
 
@@ -285,6 +295,119 @@ enum PremiumAnnotator {
         return String(text[start...end])
     }
 
+    // MARK: - Legacy grounding merge
+
+    // Legacy's per-candidate planner (Tokenizer.extractCandidates +
+    // Wikipedia.planAnnotation/lookup) does real Wikipedia search and
+    // scoring that the LLM passage pass has no access to, and its prompt has
+    // been tuned with specific gloss examples ("Lord of the White
+    // Elephants", "Red Men of America") that the fresh 5-type taxonomy
+    // prompt doesn't know about. Verification against the golden paragraph
+    // gold set found premium mode missing exactly these two: a real
+    // regression against legacy, not just a gap. Run legacy's resolver over
+    // the same paragraph and merge in anything it confidently resolves:
+    // enrich an overlapping annotation with a real Wikipedia link, or add a
+    // new one for a span the LLM pass missed outright.
+    private static func mergeLegacyGrounding(
+        _ annotations: [PassageAnnotation],
+        passage: String,
+        bookContext: String,
+        literaryNote: String?
+    ) async -> (merged: [PassageAnnotation], added: Int, enriched: Int) {
+        let tokens = Tokenizer.tokenize(passage)
+        let candidates = Tokenizer.extractCandidates(from: tokens, commonWords: CommonWordsLoader.set)
+            .filter { $0.kind == .reference }
+
+        var merged = annotations
+        var added = 0
+        var enriched = 0
+        var seenPhrases = Set<String>()
+
+        for candidate in candidates {
+            guard seenPhrases.insert(candidate.phrase.lowercased()).inserted else { continue }
+            guard let grounded = await legacyGroundedAnnotation(
+                for: candidate, bookContext: bookContext, literaryNote: literaryNote
+            ) else { continue }
+
+            if let idx = merged.firstIndex(where: { anchorOverlaps($0.anchor, candidate.phrase) }) {
+                if merged[idx].wikipediaTitle == nil {
+                    merged[idx].wikipediaTitle = grounded.wikipediaTitle
+                    merged[idx].wikipediaURL = grounded.wikipediaURL
+                    enriched += 1
+                }
+            } else if passage.contains(candidate.phrase) {
+                merged.append(grounded)
+                added += 1
+            }
+        }
+
+        return (merged, added, enriched)
+    }
+
+    private static func legacyGroundedAnnotation(
+        for candidate: AnnotationCandidate,
+        bookContext: String,
+        literaryNote: String?
+    ) async -> PassageAnnotation? {
+        let ctxBefore = candidate.contextBefore.isEmpty ? nil : candidate.contextBefore
+        let ctxAfter = candidate.contextAfter.isEmpty ? nil : candidate.contextAfter
+
+        guard let plan = await Wikipedia.planAnnotation(
+            candidate.phrase,
+            contextBefore: ctxBefore,
+            contextAfter: ctxAfter,
+            bookContext: bookContext,
+            literaryNote: literaryNote
+        ), plan.confidence >= 0.90 else { return nil }
+
+        switch plan.annotationType {
+        case "gloss":
+            guard let gloss = plan.gloss, !gloss.isEmpty else { return nil }
+            return PassageAnnotation(
+                anchor: candidate.phrase,
+                type: AnnotationCategory.context.rawValue,
+                note: gloss,
+                wikipediaTitle: nil,
+                wikipediaURL: plan.wikipediaTitle.flatMap(wikipediaURL(forTitle:))
+            )
+        case "wikipedia":
+            let result = await Wikipedia.lookup(
+                candidate.phrase,
+                contextBefore: ctxBefore,
+                contextAfter: ctxAfter,
+                bookContext: bookContext,
+                preApprovedTitle: plan.wikipediaTitle,
+                planSaysWikipedia: true
+            )
+            guard result.status == .ok, let title = result.title else { return nil }
+            return PassageAnnotation(
+                anchor: candidate.phrase,
+                type: AnnotationCategory.context.rawValue,
+                note: "Wikipedia: \(title)",
+                wikipediaTitle: title,
+                wikipediaURL: wikipediaURL(forTitle: title)
+            )
+        default:
+            return nil
+        }
+    }
+
+    // GutenbergTest's Wikipedia.swift doesn't expose a title-to-URL helper
+    // (only the app's copy does); it's a one-liner, not worth cross-target
+    // plumbing.
+    private static func wikipediaURL(forTitle title: String) -> String? {
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        let slug = trimmed.replacingOccurrences(of: " ", with: "_")
+        guard let encoded = slug.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) else { return nil }
+        return "https://en.wikipedia.org/wiki/\(encoded)"
+    }
+
+    private static func anchorOverlaps(_ a: String, _ b: String) -> Bool {
+        let a = a.lowercased(), b = b.lowercased()
+        return a == b || a.contains(b) || b.contains(a)
+    }
+
     // MARK: - Chapter-level run (Phase 5 dump for eval/run.sh-style diffing)
 
     // Skips very short fragments (chapter headings, single-line breaks) that
@@ -301,14 +424,22 @@ enum PremiumAnnotator {
         for (i, para) in paragraphs.enumerated() {
             let result = await annotate(passage: para, chapterText: chapterText, bookContext: chapterTitle, literaryNote: literaryNote)
             totalUsage = totalUsage + result.usage
-            let msg = "  [\(i + 1)/\(paragraphs.count)] \(result.annotations.count) annotations"
-                + " (+\(result.addedByCritique)/-\(result.cutByCritique) from critique)\n"
+
+            let (grounded, legacyAdded, legacyEnriched) = await mergeLegacyGrounding(
+                result.annotations, passage: para, bookContext: chapterTitle, literaryNote: literaryNote
+            )
+
+            let msg = "  [\(i + 1)/\(paragraphs.count)] \(grounded.count) annotations"
+                + " (+\(result.addedByCritique.count)/-\(result.cutByCritique.count) from critique,"
+                + " +\(legacyAdded) new/\(legacyEnriched) enriched from legacy)\n"
             FileHandle.standardError.write(msg.data(using: .utf8)!)
             records.append(.init(
                 passage: para,
-                annotations: result.annotations,
+                annotations: grounded,
                 addedByCritique: result.addedByCritique,
-                cutByCritique: result.cutByCritique
+                cutByCritique: result.cutByCritique,
+                legacyAdded: legacyAdded,
+                legacyEnriched: legacyEnriched
             ))
         }
 
@@ -340,7 +471,9 @@ struct PremiumRunRecord: Codable {
     struct ParagraphRecord: Codable {
         var passage: String
         var annotations: [PassageAnnotation]
-        var addedByCritique: Int
-        var cutByCritique: Int
+        var addedByCritique: [PassageAnnotation]
+        var cutByCritique: [PassageAnnotation]
+        var legacyAdded: Int
+        var legacyEnriched: Int
     }
 }

@@ -1,44 +1,145 @@
 {
-  "_comment": "Hand-spec'd by Claude Code per the annotation-quality fix spec, Phase 0.3. FLAGGED FOR HUMAN REVIEW before this is treated as ground truth. Two items named in the original spec text (\"Heidelburgh Tun\" and \"tapa\") do not actually occur in Chapter 42 -- Heidelburgh Tun is from Chapter 77 (\"The Great Heidelburgh Tun\"), and no tapa-cloth reference exists in this chapter. Both were dropped as likely misremembered by whoever wrote the spec; the other named examples (albatross, White Steed of the Prairies, albino man, White Squall, Whitsuntide) were verified against the live Gutenberg text and are real. Only the White Steed paragraph is hand-spec'd here per the 'one paragraph' scope in Phase 0.3; the other examples live in nearby paragraphs of the same chapter and are noted but not scored. The passage below matches the real <p> boundary the pipeline actually annotates against (see paragraphsFromChapterHTML) -- an earlier draft of this file spanned two <p> paragraphs and never matched a real run.",
+  "_comment": "Hand-spec'd by Claude Code per the annotation-quality fix spec, Phase 0.3, expanded after the first Phase 5 report showed a 5-item single-paragraph gold set was too small to distinguish a real recall problem from scoring noise. FLAGGED FOR HUMAN REVIEW before this is treated as ground truth. Two items named in the original spec text (\"Heidelburgh Tun\" and \"tapa\") do not actually occur in Chapter 42 -- Heidelburgh Tun is from Chapter 77 (\"The Great Heidelburgh Tun\"), and no tapa-cloth reference exists in this chapter. Both were dropped as likely misremembered by whoever wrote the spec. All passages below are copied verbatim from the real <p> boundaries the pipeline annotates against (paragraphsFromChapterHTML), confirmed by regenerating them the same way the pipeline does, so they will match a real run exactly. Each paragraph's expected_annotations were hand-spec'd independently, without looking at what premium mode actually produced for that paragraph, to avoid tautological scoring.",
   "bookId": 2701,
   "chapterTitle": "Moby-Dick, Chapter 42 -- The Whiteness of the Whale",
   "author": "Herman Melville",
   "sourceUrl": "https://www.gutenberg.org/cache/epub/2701/pg2701-images.html",
-  "verifiedDate": "2026-07-10",
-  "passage": "Most famous in our Western annals and Indian traditions is that of the White Steed of the Prairies; a magnificent milk-white charger, large-eyed, small-headed, bluff-chested, and with the dignity of a thousand monarchs in his lofty, overscorning carriage. He was the elected Xerxes of vast herds of wild horses, whose pastures in those days were only fenced by the Rocky Mountains and the Alleghanies. At their flaming head he westward trooped it like that chosen star which every evening leads on the hosts of light. The flashing cascade of his mane, the curving comet of his tail, invested him with housings more resplendent than gold and silver-beaters could have furnished him. A most imperial and archangelical apparition of that unfallen, western world, which to the eyes of the old trappers and hunters revived the glories of those primeval times when Adam walked majestic as a god, bluff-browed and fearless as this mighty steed. Whether marching amid his aides and marshals in the van of countless cohorts that endlessly streamed it over the plains, like an Ohio; or whether with his circumambient subjects browsing all around at the horizon, the White Steed gallopingly reviewed them with warm nostrils reddening through his cool milkiness; in whatever aspect he presented himself, always to the bravest Indians he was the object of trembling reverence and awe. Nor can it be questioned from what stands on legendary record of this noble horse, that it was his spiritual whiteness chiefly, which so clothed him with divineness; and that this divineness had that in it which, though commanding worship, at the same time enforced a certain nameless terror.",
-  "expected_annotations": [
+  "verifiedDate": "2026-07-11",
+  "paragraphs": [
     {
-      "anchor": "elected Xerxes",
-      "annotation_type": "allusion",
-      "note": "Xerxes I of Persia, remembered for commanding history's largest recorded invasion army; casts the White Steed as sovereign of an ungovernable multitude."
+      "label": "white_steed",
+      "passage": "Most famous in our Western annals and Indian traditions is that of the White Steed of the Prairies; a magnificent milk-white charger, large-eyed, small-headed, bluff-chested, and with the dignity of a thousand monarchs in his lofty, overscorning carriage. He was the elected Xerxes of vast herds of wild horses, whose pastures in those days were only fenced by the Rocky Mountains and the Alleghanies. At their flaming head he westward trooped it like that chosen star which every evening leads on the hosts of light. The flashing cascade of his mane, the curving comet of his tail, invested him with housings more resplendent than gold and silver-beaters could have furnished him. A most imperial and archangelical apparition of that unfallen, western world, which to the eyes of the old trappers and hunters revived the glories of those primeval times when Adam walked majestic as a god, bluff-browed and fearless as this mighty steed. Whether marching amid his aides and marshals in the van of countless cohorts that endlessly streamed it over the plains, like an Ohio; or whether with his circumambient subjects browsing all around at the horizon, the White Steed gallopingly reviewed them with warm nostrils reddening through his cool milkiness; in whatever aspect he presented himself, always to the bravest Indians he was the object of trembling reverence and awe. Nor can it be questioned from what stands on legendary record of this noble horse, that it was his spiritual whiteness chiefly, which so clothed him with divineness; and that this divineness had that in it which, though commanding worship, at the same time enforced a certain nameless terror.",
+      "expected_annotations": [
+        {
+          "anchor": "elected Xerxes",
+          "annotation_type": "allusion",
+          "note": "Xerxes I of Persia, remembered for commanding history's largest recorded invasion army; casts the White Steed as sovereign of an ungovernable multitude."
+        },
+        {
+          "anchor": "the Alleghanies",
+          "annotation_type": "philology",
+          "note": "Period spelling of the Allegheny Mountains, used with the Rockies to mark the entire unfenced breadth of the continent."
+        },
+        {
+          "anchor": "Adam walked majestic as a god",
+          "annotation_type": "allusion",
+          "note": "Genesis image of the unfallen Adam in Eden, projecting a prelapsarian, godlike dignity onto both the horse and the American wilderness."
+        },
+        {
+          "anchor": "like an Ohio",
+          "annotation_type": "context",
+          "note": "The Ohio River supplies the simile: a herd so vast and continuous it streams over the plains the way a great river runs."
+        },
+        {
+          "anchor": "commanding worship, at the same time enforced a certain nameless terror",
+          "annotation_type": "interpretation",
+          "note": "Reading: the steed's divinity is built from the same vocabulary of awe (archangelical, worship, terror) the chapter later attaches to the whale's horror, priming the argument that reverence and dread share one root before the essay turns to whiteness's darker instances."
+        }
+      ]
     },
     {
-      "anchor": "the Alleghanies",
-      "annotation_type": "philology",
-      "note": "Period spelling of the Allegheny Mountains, used with the Rockies to mark the entire unfenced breadth of the continent."
+      "label": "opening_catalog",
+      "passage": "Though in many natural objects, whiteness refiningly enhances beauty, as if imparting some special virtue of its own, as in marbles, japonicas, and pearls; and though various nations have in some way recognised a certain royal preeminence in this hue; even the barbaric, grand old kings of Pegu placing the title “Lord of the White Elephants” above all their other magniloquent ascriptions of dominion; and the modern kings of Siam unfurling the same snow-white quadruped in the royal standard; and the Hanoverian flag bearing the one figure of a snow-white charger; and the great Austrian Empire, Cæsarian, heir to overlording Rome, having for the imperial colour the same imperial hue; and though this pre-eminence in it applies to the human race itself, giving the white man ideal mastership over every dusky tribe; and though, besides, all this, whiteness has been even made significant of gladness, for among the Romans a white stone marked a joyful day; and though in other mortal sympathies and symbolizings, this same hue is made the emblem of many touching, noble things—the innocence of brides, the benignity of age; though among the Red Men of America the giving of the white belt of wampum was the deepest pledge of honor; though in many climes, whiteness typifies the majesty of Justice in the ermine of the Judge, and contributes to the daily state of kings and queens drawn by milk-white steeds; though even in the higher mysteries of the most august religions it has been made the symbol of the divine spotlessness and power; by the Persian fire worshippers, the white forked flame being held the holiest on the altar; and in the Greek mythologies, Great Jove himself being made incarnate in a snow-white bull; and though to the noble Iroquois, the midwinter sacrifice of the sacred White Dog was by far the holiest festival of their theology, that spotless, faithful creature being held the purest envoy they could send to the Great Spirit with the annual tidings of their own fidelity; and though directly from the Latin word for white, all Christian priests derive the name of one part of their sacred vesture, the alb or tunic, worn beneath the cassock; and though among the holy pomps of the Romish faith, white is specially employed in the celebration of the Passion of our Lord; though in the Vision of St. John, white robes are given to the redeemed, and the four-and-twenty elders stand clothed in white before the great white throne, and the Holy One that sitteth there white like wool; yet for all these accumulated associations, with whatever is sweet, and honorable, and sublime, there yet lurks an elusive something in the innermost idea of this hue, which strikes more of panic to the soul than that redness which affrights in blood.",
+      "expected_annotations": [
+        {
+          "anchor": "Pegu",
+          "annotation_type": "context",
+          "note": "Historical kingdom in what is now lower Burma/Myanmar, whose kings prized white elephants as emblems of sovereignty."
+        },
+        {
+          "anchor": "Lord of the White Elephants",
+          "annotation_type": "context",
+          "note": "A royal title of Southeast Asian Buddhist monarchs; a white elephant was considered sacred and its possession a sign of a legitimate, auspicious reign."
+        },
+        {
+          "anchor": "Cæsarian",
+          "annotation_type": "allusion",
+          "note": "Invokes Julius Caesar and Roman imperial lineage; the Austrian Habsburgs claimed continuity with Rome through the Holy Roman Empire (Caesar to Kaiser)."
+        },
+        {
+          "anchor": "giving the white man ideal mastership over every dusky tribe",
+          "annotation_type": "interpretation",
+          "note": "Reading: Melville is cataloguing whiteness's idealized, self-flattering associations here specifically so the chapter's later argument (that the same hue also signals horror) lands as an inversion, not a contradiction."
+        },
+        {
+          "anchor": "a white stone marked a joyful day",
+          "annotation_type": "allusion",
+          "note": "Roman custom of marking fortunate days with a white pebble (dies albo notandus lapillo), noted in classical writers including Catullus and Pliny."
+        },
+        {
+          "anchor": "Red Men of America",
+          "annotation_type": "context",
+          "note": "Period literary label for Indigenous peoples of North America, not the phrase's modern connotation."
+        },
+        {
+          "anchor": "white belt of wampum",
+          "annotation_type": "context",
+          "note": "Wampum belts served as diplomatic and treaty tokens among Northeastern Indigenous nations; a white belt specifically signified peace and good faith."
+        },
+        {
+          "anchor": "Great Jove himself being made incarnate in a snow-white bull",
+          "annotation_type": "allusion",
+          "note": "Ovid's Metamorphoses: Jupiter takes the form of a white bull to abduct Europa, a standard classical exemplar of divine transformation."
+        },
+        {
+          "anchor": "directly from the Latin word for white, all Christian priests derive the name of one part of their sacred vesture, the alb",
+          "annotation_type": "philology",
+          "note": "\"Alb\" derives from Latin albus, \"white\": the plain etymology carries the sentence's point that the word itself, not just the custom, encodes whiteness."
+        },
+        {
+          "anchor": "the Vision of St. John, white robes are given to the redeemed",
+          "annotation_type": "allusion",
+          "note": "Book of Revelation: the redeemed in white robes before God's throne (Revelation 6:11, 7:9, 20:11), the source of \"the great white throne.\""
+        }
+      ]
     },
     {
-      "anchor": "Adam walked majestic as a god",
-      "annotation_type": "allusion",
-      "note": "Genesis image of the unfallen Adam in Eden, projecting a prelapsarian, godlike dignity onto both the horse and the American wilderness."
+      "label": "albatross_footnote",
+      "passage": "*I remember the first albatross I ever saw. It was during a prolonged gale, in waters hard upon the Antarctic seas. From my forenoon watch below, I ascended to the overclouded deck; and there, dashed upon the main hatches, I saw a regal, feathery thing of unspotted whiteness, and with a hooked, Roman bill sublime. At intervals, it arched forth its vast archangel wings, as if to embrace some holy ark. Wondrous flutterings and throbbings shook it. Though bodily unharmed, it uttered cries, as some king’s ghost in supernatural distress. Through its inexpressible, strange eyes, methought I peeped to secrets which took hold of God. As Abraham before the angels, I bowed myself; the white thing was so white, its wings so wide, and in those for ever exiled waters, I had lost the miserable warping memories of traditions and of towns. Long I gazed at that prodigy of plumage. I cannot tell, can only hint, the things that darted through me then. But at last I awoke; and turning, asked a sailor what bird was this. A goney, he replied. Goney! never had heard that name before; is it conceivable that this glorious thing is utterly unknown to men ashore! never! But some time after, I learned that goney was some seaman’s name for albatross. So that by no possibility could Coleridge’s wild Rhyme have had aught to do with those mystical impressions which were mine, when I saw that bird upon our deck. For neither had I then read the Rhyme, nor knew the bird to be an albatross. Yet, in saying this, I do but indirectly burnish a little brighter the noble merit of the poem and the poet.",
+      "expected_annotations": [
+        {
+          "anchor": "it arched forth its vast archangel wings, as if to embrace some holy ark",
+          "annotation_type": "allusion",
+          "note": "Exodus 25: the cherubim atop the Ark of the Covenant, wings outstretched to overshadow the mercy seat."
+        },
+        {
+          "anchor": "As Abraham before the angels, I bowed myself",
+          "annotation_type": "allusion",
+          "note": "Genesis 18: Abraham bows before the three divine visitors at Mamre, a type for an encounter with something more than natural."
+        },
+        {
+          "anchor": "A goney",
+          "annotation_type": "philology",
+          "note": "Period sailor slang for the albatross (from \"gooney\"); the narrator's ignorance of the literary name is the point of the anecdote."
+        },
+        {
+          "anchor": "Coleridge’s wild Rhyme",
+          "annotation_type": "allusion",
+          "note": "Samuel Taylor Coleridge's \"The Rime of the Ancient Mariner\" (1798), whose central symbol is a killed albatross; Melville is explicitly distancing his own account from the poem's influence."
+        }
+      ]
     },
     {
-      "anchor": "like an Ohio",
-      "annotation_type": "context",
-      "note": "The Ohio River supplies the simile: a herd so vast and continuous it streams over the plains the way a great river runs."
-    },
-    {
-      "anchor": "commanding worship, at the same time enforced a certain nameless terror",
-      "annotation_type": "interpretation",
-      "note": "Reading: the steed's divinity is built from the same vocabulary of awe (archangelical, worship, terror) the chapter later attaches to the whale's horror -- Melville is priming the argument that reverence and dread share one root before the essay turns to whiteness's darker instances."
+      "label": "albino_man",
+      "passage": "What is it that in the Albino man so peculiarly repels and often shocks the eye, as that sometimes he is loathed by his own kith and kin! It is that whiteness which invests him, a thing expressed by the name he bears. The Albino is as well made as other men—has no substantive deformity—and yet this mere aspect of all-pervading whiteness makes him more strangely hideous than the ugliest abortion. Why should this be so?",
+      "expected_annotations": [
+        {
+          "anchor": "Albino",
+          "annotation_type": "philology",
+          "note": "From Portuguese/Spanish albo, \"white\"; the name itself, not a symptom, is what the paragraph says does the repelling."
+        },
+        {
+          "anchor": "this mere aspect of all-pervading whiteness makes him more strangely hideous than the ugliest abortion. Why should this be so?",
+          "annotation_type": "interpretation",
+          "note": "Reading: this is the chapter's thesis case in miniature, whiteness alone, with no structural defect behind it, provoking revulsion, stated as an open question the rest of the essay tries and fails to fully answer."
+        }
+      ]
     }
   ],
   "adjacent_examples_not_scored": {
-    "_note": "Named in the spec but outside the scored paragraph -- left here as a pointer for extending this gold set later, not part of the current eval. The callback item from an earlier draft of this file ('the White Steed and Albatross') actually belongs to the very next <p> ('But there are other instances...'), one sentence after the scored passage -- confirmed by hand against a real premium run that it correctly produces a callback annotation there.",
-    "albatross": "paragraphs beginning 'Bethink thee of the albatross' (~line 88 of the chapter)",
-    "albino_man": "paragraph beginning 'What is it that in the Albino man' (~line 158)",
+    "_note": "Named in the spec but outside the scored paragraphs -- left here as a pointer for extending this gold set later, not part of the current eval.",
     "white_squall": "'the gauntleted ghost of the Southern Seas has been denominated the White Squall' (~line 168)",
     "whitsuntide": "'the bare mention of Whitsuntide' (~line 208)",
-    "callback_next_paragraph": "'this whiteness loses all that accessory and strange glory which invests it in the White Steed and Albatross' -- verified caught as a callback annotation in tools/runs/md_ch42_premium_1783720483.json, paragraph index 11"
+    "callback_after_white_steed": "'this whiteness loses all that accessory and strange glory which invests it in the White Steed and Albatross' (the paragraph immediately after white_steed) -- verified caught as a callback annotation in tools/runs/md_ch42_premium_1783720483.json, paragraph index 11"
   }
 }

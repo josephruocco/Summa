@@ -31,6 +31,10 @@ final class OverlayController {
 
     private var vocab: [HighlightBox] = []
     private var refs: [HighlightBox] = []
+    // Premium (AI) annotations for the current screen. Rendered as reference
+    // highlights, but their notes are seeded into LookupCache below so hover
+    // shows the editorial note directly instead of a Wikipedia lookup.
+    private var premiumRefs: [HighlightBox] = []
     private var layoutMode: OverlayAnnotationLayout = .hover
     private var sideTooltips: [String: OverlayTooltip] = [:]
     private var sideLookupTasks: [String: Task<Void, Never>] = [:]
@@ -135,6 +139,36 @@ final class OverlayController {
         render(hovered: hovered, tooltip: nil)
     }
 
+    // Replace the current screen's premium annotations. Each note is seeded
+    // into LookupCache under the same key fetchTooltip will compute, so a
+    // hover resolves to the editorial note with no network call.
+    func setPremiumHighlights(_ annotations: [ScreenAnnotation]) {
+        let boxes = annotations.map { ann in
+            HighlightBox(text: ann.surface, rect: ann.rect, kind: .reference)
+        }
+        for (box, ann) in zip(boxes, annotations) {
+            let result = WikiResult(
+                status: .ok,
+                requested: ann.surface,
+                title: ann.type.capitalized,
+                extract: nil,
+                pageURL: nil,
+                thumbnailURL: nil,
+                debug: "premium: \(ann.type)",
+                score: nil,
+                gloss: ann.note
+            )
+            LookupCache.shared.setWikipedia(lookupKey(for: box), result)
+        }
+        premiumRefs = boxes
+        if layoutMode == .side {
+            preloadSidebarTooltips()
+            render(hovered: nil, tooltip: nil)
+        } else {
+            render(hovered: hovered, tooltip: nil)
+        }
+    }
+
     func setLayoutMode(_ mode: OverlayAnnotationLayout) {
         layoutMode = mode
         applyOverlayFrame()
@@ -160,6 +194,7 @@ final class OverlayController {
     func clear() {
         vocab = []
         refs = []
+        premiumRefs = []
         lastOCRTokenRects = []
         hovered = nil
         sideTooltips.removeAll()
@@ -576,7 +611,7 @@ final class OverlayController {
     }
 
     private var filteredRefs: [HighlightBox] {
-        refs.filter { !suppressedLookupKeys.contains(lookupKey(for: $0)) }
+        (refs + premiumRefs).filter { !suppressedLookupKeys.contains(lookupKey(for: $0)) }
     }
 
     private var visibleHighlights: [HighlightBox] {

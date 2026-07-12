@@ -105,6 +105,7 @@ struct ContentView: View {
             Menu {
                 Toggle("Show Vocab Highlights", isOn: $model.showVocab)
                 Toggle("Show Reference Highlights", isOn: $model.showRefs)
+                Toggle("Premium AI Annotations", isOn: $model.premiumAnnotations)
                 Toggle("Show Annotation Debug", isOn: $model.showAnnotationDebug)
             } label: {
                 Label("Highlight Options", systemImage: "slider.horizontal.3")
@@ -155,6 +156,21 @@ struct ContentView: View {
                     }
                 }
                 .pickerStyle(.segmented)
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Anthropic API Key")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.secondary)
+
+                SecureField("sk-ant-…", text: $model.anthropicAPIKey)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.system(size: 12))
+
+                Text("Required for Premium AI Annotations. Your key is stored on this Mac and sent only to Anthropic.")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
             Button {

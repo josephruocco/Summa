@@ -10,6 +10,7 @@ final class AppModel: ObservableObject {
     private static let exportFolderBookmarkKey = "summa.exportFolderBookmark"
     private static let overlayLayoutKey = "summa.overlayLayout"
     private static let annotationDebugKey = "summa.annotationDebug"
+    private static let premiumKey = "summa.premiumAnnotations"
 
     @Published var windows: [SCWindow] = []
     @Published var selectedWindowID: UInt32? = nil
@@ -32,6 +33,18 @@ final class AppModel: ObservableObject {
             overlay?.setDebugMode(showAnnotationDebug)
         }
     }
+    @Published var premiumAnnotations: Bool = false {
+        didSet {
+            UserDefaults.standard.set(premiumAnnotations, forKey: Self.premiumKey)
+            if !premiumAnnotations { overlay?.setPremiumHighlights([]) }
+        }
+    }
+    // Bound to a SecureField in settings; persisted where ScreenAnnotator reads it.
+    @Published var anthropicAPIKey: String = "" {
+        didSet {
+            UserDefaults.standard.set(anthropicAPIKey, forKey: ScreenAnnotator.apiKeyDefaultsKey)
+        }
+    }
 
     @Published var lastHighlightCounts: (vocab: Int, ref: Int) = (0, 0)
     @Published var hasExportFolder: Bool = false
@@ -49,12 +62,16 @@ final class AppModel: ObservableObject {
     private var lastVocab: [HighlightBox] = []
     private var lastRefs: [HighlightBox] = []
     private var lastSidebarAnchorX: CGFloat = 0
+    private var premiumTask: Task<Void, Never>?
+    private var lastPremiumTextHash: Int?
 
     private init() {
         NSApp.setActivationPolicy(.accessory)
         hasExportFolder = loadExportFolderURL() != nil
         overlayLayout = loadOverlayLayout()
         showAnnotationDebug = UserDefaults.standard.bool(forKey: Self.annotationDebugKey)
+        premiumAnnotations = UserDefaults.standard.bool(forKey: Self.premiumKey)
+        anthropicAPIKey = UserDefaults.standard.string(forKey: ScreenAnnotator.apiKeyDefaultsKey) ?? ""
 
         activationObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didActivateApplicationNotification,
@@ -150,6 +167,8 @@ final class AppModel: ObservableObject {
     func stopSession() {
         capture.stop()
         stopScrollMonitor()
+        premiumTask?.cancel()
+        lastPremiumTextHash = nil
         overlay?.clear()
         currentCapturedWindowID = nil
         sessionOn = false
@@ -287,6 +306,8 @@ final class AppModel: ObservableObject {
         overlay?.setHighlights(vocab: result.vocab, refs: result.refs, sidebarAnchorX: sidebarAnchorX)
         overlay?.setOCRTokens(tokens, overlaySize: overlaySize)
 
+        runPremiumAnnotationIfEnabled(tokens: tokens, overlaySize: overlaySize)
+
         Task {
             await self.recorder.ingest(
                 vocab: result.vocab,
@@ -299,6 +320,30 @@ final class AppModel: ObservableObject {
         status = "Session running on \(currentWindowLabel)."
     }
 
+    // Kicks off a background premium-annotation pass for the current screen.
+    // Cheap-gated: only when enabled and a key is present, and skipped when the
+    // visible text is unchanged from the last pass so we don't re-map/re-render
+    // (and don't re-bill) on cosmetic frame changes like a blinking cursor.
+    // ScreenAnnotator caches LLM responses by screen text, so scrolling back to
+    // an already-read screen is free.
+    private func runPremiumAnnotationIfEnabled(tokens: [OCRToken], overlaySize: CGSize) {
+        guard premiumAnnotations, ScreenAnnotator.hasAPIKey else { return }
+
+        let textHash = tokens.map(\.text).joined(separator: " ").hashValue
+        if textHash == lastPremiumTextHash { return }
+        lastPremiumTextHash = textHash
+
+        let ctx = currentWindowLabel.isEmpty ? nil : currentWindowLabel
+        premiumTask?.cancel()
+        premiumTask = Task { [weak self] in
+            let annotations = await ScreenAnnotator.annotate(
+                tokens: tokens, overlaySize: overlaySize, bookContext: ctx
+            )
+            if Task.isCancelled { return }
+            self?.overlay?.setPremiumHighlights(annotations)
+        }
+    }
+
     private func startScrollMonitor() {
         guard scrollMonitor == nil else { return }
 
@@ -307,6 +352,8 @@ final class AppModel: ObservableObject {
             Task { @MainActor in
                 self.isScrolling = active
                 if active {
+                    self.premiumTask?.cancel()
+                    self.lastPremiumTextHash = nil
                     self.overlay?.clear()
                     self.status = "Scrolling…"
                 } else {

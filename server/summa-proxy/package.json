@@ -1,0 +1,14 @@
+{
+  "name": "summa-proxy",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Annotation proxy between the Summa app and the Anthropic API.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

@@ -159,18 +159,37 @@ struct ContentView: View {
             }
 
             VStack(alignment: .leading, spacing: 6) {
-                Text("Anthropic API Key")
+                Text("Premium AI Annotations")
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(.secondary)
 
-                SecureField("sk-ant-…", text: $model.anthropicAPIKey)
+                SecureField("Beta access code", text: $model.accessCode)
                     .textFieldStyle(.roundedBorder)
                     .font(.system(size: 12))
 
-                Text("Required for Premium AI Annotations. Your key is stored on this Mac and sent only to Anthropic.")
+                TextField("Proxy URL (https://…)", text: $model.proxyURL)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.system(size: 12))
+                    .textContentType(.URL)
+
+                Text("Enter the access code you were given. No API key needed — requests go through Summa's server, and your key is never stored on this Mac.")
                     .font(.system(size: 10))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
+
+                DisclosureGroup {
+                    SecureField("sk-ant-… (dev only)", text: $model.anthropicAPIKey)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.system(size: 12))
+                    Text("Calls Anthropic directly. Used only when no proxy URL is set.")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                } label: {
+                    Text("Advanced: direct API key")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.secondary)
+                }
             }
 
             Button {

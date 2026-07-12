@@ -39,11 +39,18 @@ final class AppModel: ObservableObject {
             if !premiumAnnotations { overlay?.setPremiumHighlights([]) }
         }
     }
-    // Bound to a SecureField in settings; persisted where ScreenAnnotator reads it.
+    // Premium annotation credentials, bound to settings fields and persisted
+    // where ScreenAnnotator reads them. Testers set an access code (and, until
+    // a default proxy URL is baked in, the proxy URL); the raw API key is a dev
+    // fallback used only when no proxy is configured.
+    @Published var accessCode: String = "" {
+        didSet { UserDefaults.standard.set(accessCode, forKey: ScreenAnnotator.accessTokenDefaultsKey) }
+    }
+    @Published var proxyURL: String = "" {
+        didSet { UserDefaults.standard.set(proxyURL, forKey: ScreenAnnotator.proxyURLDefaultsKey) }
+    }
     @Published var anthropicAPIKey: String = "" {
-        didSet {
-            UserDefaults.standard.set(anthropicAPIKey, forKey: ScreenAnnotator.apiKeyDefaultsKey)
-        }
+        didSet { UserDefaults.standard.set(anthropicAPIKey, forKey: ScreenAnnotator.apiKeyDefaultsKey) }
     }
 
     @Published var lastHighlightCounts: (vocab: Int, ref: Int) = (0, 0)
@@ -71,6 +78,8 @@ final class AppModel: ObservableObject {
         overlayLayout = loadOverlayLayout()
         showAnnotationDebug = UserDefaults.standard.bool(forKey: Self.annotationDebugKey)
         premiumAnnotations = UserDefaults.standard.bool(forKey: Self.premiumKey)
+        accessCode = UserDefaults.standard.string(forKey: ScreenAnnotator.accessTokenDefaultsKey) ?? ""
+        proxyURL = UserDefaults.standard.string(forKey: ScreenAnnotator.proxyURLDefaultsKey) ?? ""
         anthropicAPIKey = UserDefaults.standard.string(forKey: ScreenAnnotator.apiKeyDefaultsKey) ?? ""
 
         activationObserver = NSWorkspace.shared.notificationCenter.addObserver(
@@ -293,7 +302,7 @@ final class AppModel: ObservableObject {
         // "Lord" -> Lorde the singer). Only suppress when premium can actually
         // run -- if the toggle is on but no API key is set, keep legacy refs so
         // the app isn't left with no references at all. Vocab is unaffected.
-        let premiumActive = premiumAnnotations && ScreenAnnotator.hasAPIKey
+        let premiumActive = premiumAnnotations && ScreenAnnotator.isConfigured
         let rawResult = engine.computeHighlights(
             tokens: tokens,
             windowSize: overlaySize,
@@ -334,7 +343,7 @@ final class AppModel: ObservableObject {
     // ScreenAnnotator caches LLM responses by screen text, so scrolling back to
     // an already-read screen is free.
     private func runPremiumAnnotationIfEnabled(tokens: [OCRToken], overlaySize: CGSize) {
-        guard premiumAnnotations, ScreenAnnotator.hasAPIKey else { return }
+        guard premiumAnnotations, ScreenAnnotator.isConfigured else { return }
 
         let textHash = tokens.map(\.text).joined(separator: " ").hashValue
         if textHash == lastPremiumTextHash { return }

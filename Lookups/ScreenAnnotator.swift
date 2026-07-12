@@ -31,17 +31,40 @@ private struct RawAnnotation: Codable {
 
 enum ScreenAnnotator {
 
-    // Feature settings, stored in UserDefaults so the setting survives launches
-    // and (for the API key) so a shipped build works without a dev .env.
-    static let apiKeyDefaultsKey = "summa.anthropicAPIKey"
-    static let modelDefaultsKey  = "summa.annotationModel"
+    // Feature settings, stored in UserDefaults so they survive launches and a
+    // shipped build works without a dev .env.
+    //
+    // Two ways to reach the model:
+    //   1. Proxy (production): the app POSTs visible text + an access code to
+    //      the Summa proxy, which holds the Anthropic key server-side. This is
+    //      what testers use -- no key ever lives on their machine.
+    //   2. Direct (dev only): a raw Anthropic key in apiKeyDefaultsKey (or the
+    //      ANTHROPIC_API_KEY env var) calls Anthropic straight from the app.
+    // If a proxy URL is set, it wins.
+    static let proxyURLDefaultsKey   = "summa.proxyURL"
+    static let accessTokenDefaultsKey = "summa.accessToken"
+    static let apiKeyDefaultsKey     = "summa.anthropicAPIKey"
+    static let modelDefaultsKey      = "summa.annotationModel"
     static let defaultModel = "claude-sonnet-4-6"
 
+    // Baked-in default proxy URL. Once you deploy the proxy, set this to its
+    // HTTPS URL so testers only need to paste an access code, not a URL. A
+    // value saved in settings overrides this.
+    static let defaultProxyURL = ""
+
+    private static func trimmedDefault(_ key: String) -> String? {
+        guard let v = UserDefaults.standard.string(forKey: key)?
+            .trimmingCharacters(in: .whitespacesAndNewlines), !v.isEmpty else { return nil }
+        return v
+    }
+
+    static func proxyURL() -> String? {
+        trimmedDefault(proxyURLDefaultsKey) ?? (defaultProxyURL.isEmpty ? nil : defaultProxyURL)
+    }
+    static func accessToken() -> String? { trimmedDefault(accessTokenDefaultsKey) }
+
     static func apiKey() -> String? {
-        if let k = UserDefaults.standard.string(forKey: apiKeyDefaultsKey),
-           !k.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return k.trimmingCharacters(in: .whitespacesAndNewlines)
-        }
+        if let k = trimmedDefault(apiKeyDefaultsKey) { return k }
         // Dev fallback only: set when launched from a shell that exported it.
         if let env = ProcessInfo.processInfo.environment["ANTHROPIC_API_KEY"], !env.isEmpty {
             return env
@@ -49,7 +72,11 @@ enum ScreenAnnotator {
         return nil
     }
 
-    static var hasAPIKey: Bool { apiKey() != nil }
+    // True when premium annotations can actually run: either a proxy URL plus
+    // an access code, or a raw dev key.
+    static var isConfigured: Bool {
+        (proxyURL() != nil && accessToken() != nil) || apiKey() != nil
+    }
 
     private static var model: String {
         UserDefaults.standard.string(forKey: modelDefaultsKey) ?? defaultModel
@@ -190,7 +217,48 @@ enum ScreenAnnotator {
 
     // MARK: - LLM call
 
+    // Prefer the proxy (production); fall back to a direct Anthropic call only
+    // when no proxy is configured but a raw dev key is present.
     private static func requestAnnotations(visibleText: String, bookContext: String?) async -> [RawAnnotation]? {
+        if let base = proxyURL(), let token = accessToken() {
+            return await requestViaProxy(base: base, token: token, visibleText: visibleText, bookContext: bookContext)
+        }
+        return await requestDirect(visibleText: visibleText, bookContext: bookContext)
+    }
+
+    // Production path: send only the visible text + book label to the proxy,
+    // which holds the key and builds the prompt. Returns {annotations:[...]}.
+    private static func requestViaProxy(base: String, token: String, visibleText: String, bookContext: String?) async -> [RawAnnotation]? {
+        let trimmed = base.hasSuffix("/") ? String(base.dropLast()) : base
+        guard let url = URL(string: "\(trimmed)/annotate") else { return nil }
+
+        var payload: [String: Any] = ["visibleText": visibleText]
+        if let bookContext, !bookContext.isEmpty { payload["bookContext"] = bookContext }
+        guard let bodyData = try? JSONSerialization.data(withJSONObject: payload) else { return nil }
+
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.timeoutInterval = 35
+        req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = bodyData
+
+        guard let (data, resp) = try? await URLSession.shared.data(for: req),
+              (resp as? HTTPURLResponse)?.statusCode == 200,
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let arr = json["annotations"] as? [[String: Any]] else { return nil }
+
+        return arr.compactMap { item -> RawAnnotation? in
+            guard let anchor = item["anchor"] as? String, !anchor.isEmpty,
+                  let type = item["type"] as? String,
+                  let note = item["note"] as? String, !note.isEmpty,
+                  AnnotationCategory(rawValue: type) != nil else { return nil }
+            return RawAnnotation(anchor: anchor, type: type, note: note)
+        }
+    }
+
+    // Dev path: call Anthropic directly with a raw key and the local prompt.
+    private static func requestDirect(visibleText: String, bookContext: String?) async -> [RawAnnotation]? {
         guard let apiKey = apiKey(),
               let url = URL(string: "https://api.anthropic.com/v1/messages") else { return nil }
 

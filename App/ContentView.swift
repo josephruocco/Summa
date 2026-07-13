@@ -257,7 +257,7 @@ struct SettingsView: View {
 // toggle), then closes itself.
 struct WelcomeView: View {
     @EnvironmentObject var model: AppModel
-    @Environment(\.dismiss) private var dismiss
+    var onDismiss: () -> Void = {}
 
     var body: some View {
         VStack(spacing: 22) {
@@ -294,7 +294,7 @@ struct WelcomeView: View {
 
             Button {
                 Task { await model.resumeAutomaticSession() }
-                dismiss()
+                onDismiss()
             } label: {
                 Text("Click to start my session")
                     .frame(maxWidth: .infinity)

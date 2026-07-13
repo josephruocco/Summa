@@ -76,6 +76,7 @@ final class AppModel: ObservableObject {
     private var premiumTask: Task<Void, Never>?
     private var lastPremiumTextHash: Int?
     private var requestedScreenAccess = false
+    private var screenAccessDenied = false
 
     private init() {
         NSApp.setActivationPolicy(.accessory)
@@ -127,21 +128,29 @@ final class AppModel: ObservableObject {
         return "\(app) — \(cleanTitle)"
     }
 
-    // Returns true if Screen Recording permission is granted. If not, requests
-    // it EXACTLY ONCE (which shows the system prompt and opens System Settings)
-    // and returns false. Every entry point that touches ScreenCaptureKit goes
-    // through here first, so a missing permission never turns into a loop of
-    // prompts -- that repeated re-request (on every app activation) was the bug.
-    // Screen Recording changes require a relaunch to take effect, so after
-    // granting, the user reopens Summa and preflight then passes.
-    private func ensureScreenPermission() -> Bool {
-        if CGPreflightScreenCaptureAccess() { return true }
+    private func requestScreenAccessOnce() {
         if !requestedScreenAccess {
             requestedScreenAccess = true
             _ = CGRequestScreenCaptureAccess()
         }
         if sessionOn { sessionOn = false }
         status = "Grant Summa access under System Settings ▸ Privacy & Security ▸ Screen Recording, then reopen Summa."
+    }
+
+    // Gate for every ScreenCaptureKit entry point, so a missing permission never
+    // becomes a loop of prompts (that repeated re-request on each app activation
+    // was the bug). CGPreflightScreenCaptureAccess alone isn't trustworthy: after
+    // a permission reset / bundle-id change it can report a stale "granted",
+    // letting the real capture call prompt anyway. So we ALSO latch on the
+    // actual capture failure (screenAccessDenied) and stop trying until the app
+    // is relaunched -- Screen Recording grants require a relaunch regardless.
+    private func ensureScreenPermission() -> Bool {
+        if screenAccessDenied {
+            requestScreenAccessOnce()
+            return false
+        }
+        if CGPreflightScreenCaptureAccess() { return true }
+        requestScreenAccessOnce()
         return false
     }
 
@@ -154,7 +163,11 @@ final class AppModel: ObservableObject {
                 .sorted { ($0.owningApplication?.applicationName ?? "") < ($1.owningApplication?.applicationName ?? "") }
             status = "Found \(windows.count) windows."
         } catch {
-            status = "Failed to list windows: \(error.localizedDescription)"
+            // A throw here almost always means Screen Recording is denied even
+            // if preflight lied. Latch it so we stop re-calling (and re-prompting)
+            // until the app is relaunched.
+            screenAccessDenied = true
+            requestScreenAccessOnce()
         }
     }
 

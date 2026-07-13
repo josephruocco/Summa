@@ -278,7 +278,7 @@ struct WelcomeView: View {
     }
 
     var body: some View {
-        VStack(spacing: 20) {
+        VStack(alignment: .leading, spacing: 20) {
             if let logo = logoImage {
                 Image(nsImage: logo)
                     .resizable()
@@ -302,23 +302,24 @@ struct WelcomeView: View {
                 .padding(.top, 6)
             }
 
-            VStack(spacing: 9) {
+            VStack(alignment: .leading, spacing: 8) {
                 Text("Thank you for using Summa")
-                    .font(.system(size: 18, weight: .semibold, design: .serif))
+                    .font(.system(size: 20, weight: .semibold, design: .serif))
                     .foregroundStyle(ink)
                 Text("Summa reads along with you and surfaces helpful notes worth knowing.")
-                    .font(.system(size: 13))
-                    .foregroundStyle(ink.opacity(0.55))
-                    .multilineTextAlignment(.center)
+                    .font(.system(size: 14, design: .serif))
+                    .italic()
+                    .foregroundStyle(ink.opacity(0.6))
+                    .multilineTextAlignment(.leading)
                     .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: 330)
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
 
             Button {
                 Task { await model.resumeAutomaticSession() }
                 onDismiss()
             } label: {
-                Text("Click to start my session")
+                Text("Click to start")
                     .font(.system(size: 14.5, weight: .semibold))
                     .foregroundStyle(.white)
                     .frame(maxWidth: .infinity)
@@ -337,11 +338,11 @@ struct WelcomeView: View {
                     .shadow(color: summaRed.opacity(0.35), radius: 9, y: 4)
             }
             .buttonStyle(.plain)
-            .frame(maxWidth: 320)
+            .frame(maxWidth: .infinity)
             .padding(.top, 2)
             .keyboardShortcut(.defaultAction)
 
-            VStack(spacing: 4) {
+            VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 6) {
                     Text("Version \(appVersion)")
                     Text("·")
@@ -353,7 +354,7 @@ struct WelcomeView: View {
                     .font(.system(size: 10))
             }
             .foregroundStyle(ink.opacity(0.45))
-            .padding(.top, 6)
+            .padding(.top, 2)
         }
         .padding(.horizontal, 44)
         .padding(.top, 30)

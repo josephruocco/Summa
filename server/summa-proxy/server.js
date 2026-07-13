@@ -18,6 +18,7 @@
 //   MAX_TEXT_CHARS       reject bodies whose visibleText exceeds this, default 12000
 
 import http from "node:http";
+import { createRemoteJWKSet, jwtVerify, SignJWT } from "jose";
 
 const MODEL = process.env.ANNOTATION_MODEL || "claude-sonnet-4-6";
 const PORT = parseInt(process.env.PORT || "8787", 10);
@@ -25,20 +26,71 @@ const RATE_LIMIT_PER_MIN = parseInt(process.env.RATE_LIMIT_PER_MIN || "40", 10);
 const MAX_TEXT_CHARS = parseInt(process.env.MAX_TEXT_CHARS || "12000", 10);
 
 const API_KEY = process.env.ANTHROPIC_API_KEY;
+
+// Auth path 1: shared per-tester access codes (simplest).
 const ACCESS_TOKENS = new Set(
-  (process.env.SUMMA_ACCESS_TOKENS || "")
-    .split(",")
-    .map((t) => t.trim())
-    .filter(Boolean)
+  (process.env.SUMMA_ACCESS_TOKENS || "").split(",").map((t) => t.trim()).filter(Boolean)
 );
+
+// Auth path 2: Sign in with Apple + an email allowlist. The app sends Apple's
+// identity token to /session; if the email is on the allowlist, we issue our
+// own 30-day session token (HS256, signed with SUMMA_SESSION_SECRET) that the
+// app then uses on /annotate. That way Apple is only touched once at sign-in.
+const APPLE_BUNDLE_ID = (process.env.APPLE_BUNDLE_ID || "").trim();
+const SESSION_SECRET = (process.env.SUMMA_SESSION_SECRET || "").trim();
+const ALLOWED_EMAILS = new Set(
+  (process.env.SUMMA_ALLOWED_EMAILS || "").split(",").map((e) => e.trim().toLowerCase()).filter(Boolean)
+);
+const APPLE_ISSUER = "https://appleid.apple.com";
+const appleJWKS = createRemoteJWKSet(new URL("https://appleid.apple.com/auth/keys"));
+const SESSION_ISSUER = "summa-proxy";
+const signInEnabled = !!(APPLE_BUNDLE_ID && SESSION_SECRET && ALLOWED_EMAILS.size > 0);
 
 if (!API_KEY) {
   console.error("FATAL: ANTHROPIC_API_KEY is not set.");
   process.exit(1);
 }
-if (ACCESS_TOKENS.size === 0) {
-  console.error("FATAL: SUMMA_ACCESS_TOKENS is empty. Set at least one beta access code.");
+if (ACCESS_TOKENS.size === 0 && !signInEnabled) {
+  console.error(
+    "FATAL: no auth configured. Set SUMMA_ACCESS_TOKENS, or all of APPLE_BUNDLE_ID + SUMMA_SESSION_SECRET + SUMMA_ALLOWED_EMAILS."
+  );
   process.exit(1);
+}
+
+const sessionKey = SESSION_SECRET ? new TextEncoder().encode(SESSION_SECRET) : null;
+
+function emailAllowed(email) {
+  return !!email && ALLOWED_EMAILS.has(String(email).toLowerCase());
+}
+
+// Verify Apple's identity token: signature against Apple's JWKS, correct
+// issuer, and audience == your app's bundle id. Throws if anything is off.
+async function verifyAppleIdentityToken(token) {
+  const { payload } = await jwtVerify(token, appleJWKS, {
+    issuer: APPLE_ISSUER,
+    audience: APPLE_BUNDLE_ID,
+  });
+  return payload; // includes email, sub, exp
+}
+
+async function issueSessionToken(email) {
+  return await new SignJWT({ email: String(email).toLowerCase() })
+    .setProtectedHeader({ alg: "HS256" })
+    .setIssuedAt()
+    .setIssuer(SESSION_ISSUER)
+    .setExpirationTime("30d")
+    .sign(sessionKey);
+}
+
+// Returns the email if the token is one of our valid, unexpired session tokens.
+async function emailFromSessionToken(token) {
+  if (!sessionKey) return null;
+  try {
+    const { payload } = await jwtVerify(token, sessionKey, { issuer: SESSION_ISSUER });
+    return typeof payload.email === "string" ? payload.email : null;
+  } catch {
+    return null;
+  }
 }
 
 // ponytail: in-memory fixed-window rate limiter, per access code. Resets on
@@ -170,19 +222,58 @@ function readBody(req, limitBytes) {
 
 const server = http.createServer(async (req, res) => {
   if (req.method === "GET" && req.url === "/health") {
-    return send(res, 200, { ok: true, model: MODEL });
+    return send(res, 200, { ok: true, model: MODEL, signIn: signInEnabled });
   }
+
+  // Exchange an Apple identity token for a Summa session token (Sign in with Apple).
+  if (req.method === "POST" && req.url === "/session") {
+    if (!signInEnabled) return send(res, 501, { error: "sign-in not configured" });
+    let payload;
+    try {
+      payload = JSON.parse(await readBody(req, 16 * 1024));
+    } catch {
+      return send(res, 400, { error: "bad request body" });
+    }
+    const idToken = typeof payload.appleIdentityToken === "string" ? payload.appleIdentityToken : "";
+    if (!idToken) return send(res, 400, { error: "appleIdentityToken required" });
+
+    let claims;
+    try {
+      claims = await verifyAppleIdentityToken(idToken);
+    } catch (e) {
+      console.error(`[session] Apple token rejected: ${e}`);
+      return send(res, 401, { error: "invalid Apple token" });
+    }
+    const email = (claims.email || "").toLowerCase();
+    if (!emailAllowed(email)) {
+      console.log(`[session] denied (not on allowlist): ${email || "no-email"}`);
+      return send(res, 403, { error: "this account is not on the beta allowlist" });
+    }
+    const sessionToken = await issueSessionToken(email);
+    console.log(`[session] issued for ${email}`);
+    return send(res, 200, { sessionToken, email });
+  }
+
   if (req.method !== "POST" || req.url !== "/annotate") {
     return send(res, 404, { error: "not found" });
   }
 
-  // Auth: Bearer <access code>
+  // Auth on /annotate: Bearer is either a shared access code, or a Summa
+  // session token issued at sign-in. Session tokens are re-checked against the
+  // current allowlist so revoking an email takes effect immediately.
   const auth = req.headers["authorization"] || "";
   const token = auth.startsWith("Bearer ") ? auth.slice(7).trim() : "";
-  if (!ACCESS_TOKENS.has(token)) {
-    return send(res, 401, { error: "invalid or missing access code" });
+  let identity = null;
+  if (token && ACCESS_TOKENS.has(token)) {
+    identity = `code:${token.slice(0, 6)}`;
+  } else if (token) {
+    const email = await emailFromSessionToken(token);
+    if (email && emailAllowed(email)) identity = `user:${email}`;
   }
-  if (rateLimited(token)) {
+  if (!identity) {
+    return send(res, 401, { error: "invalid or missing credentials" });
+  }
+  if (rateLimited(identity)) {
     return send(res, 429, { error: "rate limit exceeded, slow down" });
   }
 
@@ -212,11 +303,13 @@ const server = http.createServer(async (req, res) => {
     const { input_tokens: i = 0, output_tokens: o = 0 } = result.usage;
     // Rough Sonnet pricing ($3/M in, $15/M out) for at-a-glance cost tracking.
     const cost = (i / 1e6) * 3 + (o / 1e6) * 15;
-    console.log(`[annotate] token=${token.slice(0, 6)}… in=${i} out=${o} $${cost.toFixed(4)} annotations=${annotations.length}`);
+    console.log(`[annotate] ${identity} in=${i} out=${o} $${cost.toFixed(4)} annotations=${annotations.length}`);
   }
   return send(res, 200, { annotations });
 });
 
 server.listen(PORT, () => {
-  console.log(`Summa proxy listening on :${PORT} (model ${MODEL}, ${ACCESS_TOKENS.size} access code(s))`);
+  console.log(
+    `Summa proxy listening on :${PORT} (model ${MODEL}, ${ACCESS_TOKENS.size} access code(s), sign-in ${signInEnabled ? "on" : "off"})`
+  );
 });

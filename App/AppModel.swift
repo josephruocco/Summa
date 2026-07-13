@@ -3,6 +3,7 @@ import ScreenCaptureKit
 import AppKit
 import Combine
 import UniformTypeIdentifiers
+import AuthenticationServices
 
 @MainActor
 final class AppModel: ObservableObject {
@@ -52,6 +53,8 @@ final class AppModel: ObservableObject {
     @Published var anthropicAPIKey: String = "" {
         didSet { UserDefaults.standard.set(anthropicAPIKey, forKey: ScreenAnnotator.apiKeyDefaultsKey) }
     }
+    // nil when not signed in with Apple; the email the proxy authorized otherwise.
+    @Published var signedInEmail: String? = nil
 
     @Published var lastHighlightCounts: (vocab: Int, ref: Int) = (0, 0)
     @Published var hasExportFolder: Bool = false
@@ -81,6 +84,7 @@ final class AppModel: ObservableObject {
         accessCode = UserDefaults.standard.string(forKey: ScreenAnnotator.accessTokenDefaultsKey) ?? ""
         proxyURL = UserDefaults.standard.string(forKey: ScreenAnnotator.proxyURLDefaultsKey) ?? ""
         anthropicAPIKey = UserDefaults.standard.string(forKey: ScreenAnnotator.apiKeyDefaultsKey) ?? ""
+        signedInEmail = UserDefaults.standard.string(forKey: ScreenAnnotator.signedInEmailDefaultsKey)
 
         activationObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didActivateApplicationNotification,
@@ -239,6 +243,48 @@ final class AppModel: ObservableObject {
         } catch {
             status = "Export failed: \(error.localizedDescription)"
         }
+    }
+
+    // MARK: - Sign in with Apple
+
+    // Called from the SignInWithAppleButton completion. On success we hand
+    // Apple's identity token to the proxy, which verifies it, checks the
+    // allowlist, and returns a Summa session token we store and reuse.
+    func handleAppleAuthorization(_ result: Result<ASAuthorization, Error>) {
+        switch result {
+        case .failure(let error):
+            status = "Sign in failed: \(error.localizedDescription)"
+        case .success(let auth):
+            guard let credential = auth.credential as? ASAuthorizationAppleIDCredential,
+                  let tokenData = credential.identityToken,
+                  let identityToken = String(data: tokenData, encoding: .utf8) else {
+                status = "Sign in returned no identity token."
+                return
+            }
+            Task { await exchangeAppleToken(identityToken) }
+        }
+    }
+
+    private func exchangeAppleToken(_ identityToken: String) async {
+        guard let base = ScreenAnnotator.proxyURL() else {
+            status = "Set the proxy URL before signing in."
+            return
+        }
+        guard let (sessionToken, email) = await ScreenAnnotator.exchangeAppleToken(identityToken, proxyBase: base) else {
+            status = "Sign in was rejected (is your email on the allowlist?)."
+            return
+        }
+        UserDefaults.standard.set(sessionToken, forKey: ScreenAnnotator.sessionTokenDefaultsKey)
+        UserDefaults.standard.set(email, forKey: ScreenAnnotator.signedInEmailDefaultsKey)
+        signedInEmail = email
+        status = "Signed in as \(email)."
+    }
+
+    func signOut() {
+        UserDefaults.standard.removeObject(forKey: ScreenAnnotator.sessionTokenDefaultsKey)
+        UserDefaults.standard.removeObject(forKey: ScreenAnnotator.signedInEmailDefaultsKey)
+        signedInEmail = nil
+        status = "Signed out."
     }
 
     private func startSession(for win: SCWindow) async {

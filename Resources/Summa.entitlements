@@ -16,5 +16,16 @@
 	  no disable-library-validation. If we ever need one, add it here with a
 	  comment explaining why.
 	-->
+
+	<!-- Sign in with Apple: capability code is built and committed, but the
+	     entitlement is intentionally left OUT until the "Sign in with Apple"
+	     capability is enabled on the App ID (com.josephruocco.ScreenGlossMVP)
+	     in the Apple Developer portal. Adding it before then makes the
+	     Developer ID export fail to provision. Once the portal capability is
+	     on, re-add:
+	         <key>com.apple.developer.applesignin</key>
+	         <array><string>Default</string></array>
+	     and rebuild with:  ./scripts/release.sh (xcodebuild -allowProvisioningUpdates)
+	-->
 </dict>
 </plist>

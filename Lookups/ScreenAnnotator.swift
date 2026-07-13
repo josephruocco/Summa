@@ -41,10 +41,12 @@ enum ScreenAnnotator {
     //   2. Direct (dev only): a raw Anthropic key in apiKeyDefaultsKey (or the
     //      ANTHROPIC_API_KEY env var) calls Anthropic straight from the app.
     // If a proxy URL is set, it wins.
-    static let proxyURLDefaultsKey   = "summa.proxyURL"
-    static let accessTokenDefaultsKey = "summa.accessToken"
-    static let apiKeyDefaultsKey     = "summa.anthropicAPIKey"
-    static let modelDefaultsKey      = "summa.annotationModel"
+    static let proxyURLDefaultsKey    = "summa.proxyURL"
+    static let accessTokenDefaultsKey = "summa.accessToken"     // manual beta code
+    static let sessionTokenDefaultsKey = "summa.sessionToken"   // issued after Sign in with Apple
+    static let signedInEmailDefaultsKey = "summa.signedInEmail"
+    static let apiKeyDefaultsKey      = "summa.anthropicAPIKey"
+    static let modelDefaultsKey       = "summa.annotationModel"
     static let defaultModel = "claude-sonnet-4-6"
 
     // Baked-in default proxy URL. Once you deploy the proxy, set this to its
@@ -61,7 +63,31 @@ enum ScreenAnnotator {
     static func proxyURL() -> String? {
         trimmedDefault(proxyURLDefaultsKey) ?? (defaultProxyURL.isEmpty ? nil : defaultProxyURL)
     }
-    static func accessToken() -> String? { trimmedDefault(accessTokenDefaultsKey) }
+    // The bearer sent to the proxy: a Sign in with Apple session token if
+    // present, otherwise a manually-entered beta access code.
+    static func accessToken() -> String? {
+        trimmedDefault(sessionTokenDefaultsKey) ?? trimmedDefault(accessTokenDefaultsKey)
+    }
+
+    // Exchange Apple's identity token for a Summa session token via the proxy's
+    // /session endpoint. Returns nil if the proxy rejects it (e.g. the email is
+    // not on the allowlist).
+    static func exchangeAppleToken(_ identityToken: String, proxyBase: String) async -> (sessionToken: String, email: String)? {
+        let trimmed = proxyBase.hasSuffix("/") ? String(proxyBase.dropLast()) : proxyBase
+        guard let url = URL(string: "\(trimmed)/session"),
+              let body = try? JSONSerialization.data(withJSONObject: ["appleIdentityToken": identityToken]) else { return nil }
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.timeoutInterval = 20
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = body
+        guard let (data, resp) = try? await URLSession.shared.data(for: req),
+              (resp as? HTTPURLResponse)?.statusCode == 200,
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let token = json["sessionToken"] as? String,
+              let email = json["email"] as? String else { return nil }
+        return (token, email)
+    }
 
     static func apiKey() -> String? {
         if let k = trimmedDefault(apiKeyDefaultsKey) { return k }

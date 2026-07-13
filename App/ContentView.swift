@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import AuthenticationServices
 
 struct ContentView: View {
     @EnvironmentObject var model: AppModel
@@ -163,16 +164,37 @@ struct ContentView: View {
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(.secondary)
 
-                SecureField("Beta access code", text: $model.accessCode)
-                    .textFieldStyle(.roundedBorder)
-                    .font(.system(size: 12))
+                if let email = model.signedInEmail {
+                    HStack {
+                        Image(systemName: "checkmark.seal.fill").foregroundStyle(.green)
+                        Text("Signed in as \(email)").font(.system(size: 12))
+                        Spacer()
+                        Button("Sign Out") { model.signOut() }
+                            .font(.system(size: 11))
+                    }
+                } else {
+                    SignInWithAppleButton(.signIn,
+                        onRequest: { request in request.requestedScopes = [.email] },
+                        onCompletion: { model.handleAppleAuthorization($0) }
+                    )
+                    .signInWithAppleButtonStyle(.whiteOutline)
+                    .frame(height: 32)
+
+                    Text("or enter a beta access code")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.secondary)
+
+                    SecureField("Beta access code", text: $model.accessCode)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.system(size: 12))
+                }
 
                 TextField("Proxy URL (https://…)", text: $model.proxyURL)
                     .textFieldStyle(.roundedBorder)
                     .font(.system(size: 12))
                     .textContentType(.URL)
 
-                Text("Enter the access code you were given. No API key needed — requests go through Summa's server, and your key is never stored on this Mac.")
+                Text("No API key needed — requests go through Summa's server, and your key is never stored on this Mac.")
                     .font(.system(size: 10))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)

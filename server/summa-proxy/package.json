@@ -8,6 +8,9 @@
   "scripts": {
     "start": "node server.js"
   },
+  "dependencies": {
+    "jose": "^5.9.6"
+  },
   "engines": {
     "node": ">=18"
   }

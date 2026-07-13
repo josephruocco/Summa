@@ -397,11 +397,13 @@ final class AppModel: ObservableObject {
 
         let ctx = currentWindowLabel.isEmpty ? nil : currentWindowLabel
         premiumTask?.cancel()
+        overlay?.setPremiumLoading(true)
         premiumTask = Task { [weak self] in
             let annotations = await ScreenAnnotator.annotate(
                 tokens: tokens, overlaySize: overlaySize, bookContext: ctx
             )
             if Task.isCancelled { return }
+            // setPremiumHighlights also clears the loading pill.
             self?.overlay?.setPremiumHighlights(annotations)
         }
     }

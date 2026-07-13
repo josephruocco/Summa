@@ -33,7 +33,7 @@ SCHEME="ScreenGlossMVP"
 CONFIGURATION="Release"
 PROJECT="ScreenGlossMVP.xcodeproj"
 APP_NAME="Summa"                       # Display name inside the DMG
-BUNDLE_ID="com.josephruocco.Summa"
+BUNDLE_ID="com.josephruocco.ScreenGlossMVP"
 NOTARY_PROFILE="summa-notary"
 ENTITLEMENTS="Resources/Summa.entitlements"
 

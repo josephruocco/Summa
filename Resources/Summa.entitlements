@@ -18,7 +18,7 @@
 	-->
 
 	<!-- Sign in with Apple is intentionally NOT enabled. The App ID
-	     (com.josephruocco.Summa) has the capability, the code is written, and a
+	     (com.josephruocco.ScreenGlossMVP) has the capability, the code is written, and a
 	     Developer ID profile exists -- but Developer ID (outside-the-Mac-App-
 	     Store) provisioning profiles do not carry the com.apple.developer.applesignin
 	     entitlement, so the native flow can't be signed for this distribution

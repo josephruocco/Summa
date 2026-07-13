@@ -8,5 +8,5 @@ compatibility_flags = ["nodejs_compat"]
 # so they never live in this file / the repo.
 [vars]
 ANNOTATION_MODEL = "claude-sonnet-4-6"
-APPLE_BUNDLE_ID = "com.josephruocco.Summa"
+APPLE_BUNDLE_ID = "com.josephruocco.ScreenGlossMVP"
 MAX_TEXT_CHARS = "12000"

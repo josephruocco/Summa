@@ -2,6 +2,7 @@ import Foundation
 import ScreenCaptureKit
 import AppKit
 import Combine
+import CoreGraphics
 import UniformTypeIdentifiers
 import AuthenticationServices
 
@@ -74,6 +75,7 @@ final class AppModel: ObservableObject {
     private var lastSidebarAnchorX: CGFloat = 0
     private var premiumTask: Task<Void, Never>?
     private var lastPremiumTextHash: Int?
+    private var requestedScreenAccess = false
 
     private init() {
         NSApp.setActivationPolicy(.accessory)
@@ -125,7 +127,26 @@ final class AppModel: ObservableObject {
         return "\(app) — \(cleanTitle)"
     }
 
+    // Returns true if Screen Recording permission is granted. If not, requests
+    // it EXACTLY ONCE (which shows the system prompt and opens System Settings)
+    // and returns false. Every entry point that touches ScreenCaptureKit goes
+    // through here first, so a missing permission never turns into a loop of
+    // prompts -- that repeated re-request (on every app activation) was the bug.
+    // Screen Recording changes require a relaunch to take effect, so after
+    // granting, the user reopens Summa and preflight then passes.
+    private func ensureScreenPermission() -> Bool {
+        if CGPreflightScreenCaptureAccess() { return true }
+        if !requestedScreenAccess {
+            requestedScreenAccess = true
+            _ = CGRequestScreenCaptureAccess()
+        }
+        if sessionOn { sessionOn = false }
+        status = "Grant Summa access under System Settings ▸ Privacy & Security ▸ Screen Recording, then reopen Summa."
+        return false
+    }
+
     func refreshWindows() async {
+        guard ensureScreenPermission() else { return }
         do {
             let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
             self.windows = content.windows
@@ -148,6 +169,7 @@ final class AppModel: ObservableObject {
     }
 
     func syncToFrontmostWindow(startIfNeeded: Bool) async {
+        guard ensureScreenPermission() else { return }
         await refreshWindows()
 
         guard let frontmostID = WindowBounds.frontmostWindowID() else {

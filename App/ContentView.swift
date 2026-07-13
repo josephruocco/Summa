@@ -320,25 +320,24 @@ struct WelcomeView: View {
                 onDismiss()
             } label: {
                 Text("Click to start")
-                    .font(.system(size: 14.5, weight: .semibold))
+                    .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(.white)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 12)
+                    .padding(.horizontal, 26)
+                    .padding(.vertical, 9)
                     .background(
                         LinearGradient(
                             colors: [summaRed.opacity(0.96), summaRed.opacity(0.82)],
                             startPoint: .top, endPoint: .bottom
                         )
                     )
-                    .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+                    .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
                     .overlay(
-                        RoundedRectangle(cornerRadius: 11, style: .continuous)
+                        RoundedRectangle(cornerRadius: 9, style: .continuous)
                             .stroke(.white.opacity(0.25), lineWidth: 1)
                     )
-                    .shadow(color: summaRed.opacity(0.35), radius: 9, y: 4)
+                    .shadow(color: summaRed.opacity(0.3), radius: 7, y: 3)
             }
             .buttonStyle(.plain)
-            .frame(maxWidth: .infinity)
             .padding(.top, 2)
             .keyboardShortcut(.defaultAction)
 

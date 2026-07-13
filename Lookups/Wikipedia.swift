@@ -8,29 +8,8 @@ private enum CommonWordsLoader {
     nonisolated(unsafe) static let set: Set<String> = []
 }
 
-enum WikiStatus: String, Codable, Sendable {
-    case ok
-    case notFound
-    case disambiguation
-    case error
-    case suppressed
-}
-
-struct WikiResult: Codable, Sendable, Hashable {
-    var status: WikiStatus
-    var requested: String
-    var title: String?
-    var extract: String?
-    var pageURL: String?
-    var thumbnailURL: String?
-    var debug: String?
-    var score: Double?
-    // A short editorial note written by the annotation planner. When present,
-    // the overlay renders this instead of the Wikipedia extract. Glosses cover
-    // allusions, period descriptors, and thematic references that do not map
-    // cleanly onto a single Wikipedia article.
-    var gloss: String? = nil
-}
+// WikiStatus and WikiResult now live in WikiResult.swift (retained for the
+// premium annotator's tooltips as the resolver is removed).
 
 // Result of the first-pass annotation planner: decides whether a phrase becomes
 // a Wikipedia link, a written gloss, or is suppressed entirely.

@@ -1,77 +1,86 @@
-# Summa annotation proxy
+# Summa annotation proxy (Cloudflare Worker)
 
-A tiny server that sits between the Summa app and the Anthropic API. The app
-sends only the visible screen text; this server holds the Anthropic key, builds
+A tiny Cloudflare Worker between the Summa app and the Anthropic API. The app
+sends only the visible screen text; this Worker holds the Anthropic key, builds
 the annotation prompt, calls the model, and returns annotations.
 
-Why it exists:
-- **Your API key never ships in the app.** It lives only as a server secret.
+Why:
+- **Your API key never ships in the app.** It's a Worker secret.
 - **A leaked access code can only annotate literature**, not run arbitrary
   prompts on your bill, because the prompt is built here, not sent by the app.
-- **You control cost**: per-code rate limiting and one place to see usage.
+- **Free and always warm.** Cloudflare Workers have no cold starts and a
+  generous free tier (100k requests/day).
 
 ## API
 
-`POST /annotate`
-- Header: `Authorization: Bearer <access code>`
-- Body: `{"visibleText": "...", "bookContext": "optional source label"}`
-- Returns: `{"annotations": [{"anchor": "...", "type": "allusion|context|philology|interpretation", "note": "..."}]}`
+- `GET /health` → `{ ok, model, signIn }`
+- `POST /session` (Sign in with Apple) — body `{ appleIdentityToken }`, returns
+  `{ sessionToken, email }` if the email is on the allowlist.
+- `POST /annotate` — `Authorization: Bearer <access code | session token>`,
+  body `{ visibleText, bookContext? }`, returns `{ annotations: [...] }`.
 
-`GET /health` → `{"ok": true, "model": "..."}`
-
-## Run locally
+## Local dev
 
 ```sh
 cd server/summa-proxy
-cp .env.example .env          # then edit: real ANTHROPIC_API_KEY + at least one access code
-node --env-file=.env server.js
+npm install
+cp .dev.vars.example .dev.vars     # then edit: real ANTHROPIC_API_KEY + an access code
+npx wrangler dev --port 8787
 ```
 
 Smoke test:
 
 ```sh
 curl -s localhost:8787/annotate \
-  -H "Authorization: Bearer <one of your codes>" \
+  -H "Authorization: Bearer test-local-code" \
   -H "Content-Type: application/json" \
-  -d '{"visibleText":"Bethink thee of the albatross, whence come those clouds of spiritual wonderment and pale dread, in which that white phantom sails in all imaginations? Not Coleridge first threw that spell."}' | jq
+  -d '{"visibleText":"Bethink thee of the albatross ... Not Coleridge first threw that spell."}' | jq
 ```
 
 ## Deploy
 
-Zero dependencies, one file, reads config from env. Any Node 18+ host works.
-Easiest options (all have a free/cheap tier and manage secrets for you):
+One-time: a free Cloudflare account, then from `server/summa-proxy`:
 
-- **Render** (web service): connect the repo, root dir `server/summa-proxy`,
-  build command empty, start command `node server.js`, add env vars in the
-  dashboard. Gives you an HTTPS URL.
-- **Railway / Fly.io**: same idea; `node server.js` as the start command.
-- **Your own VPS**: `node --env-file=.env server.js` behind nginx/caddy for TLS.
+```sh
+npx wrangler login                              # opens the browser to authorize
 
-Set these as secrets/env on the host (NOT in the repo):
-- `ANTHROPIC_API_KEY`
-- `SUMMA_ACCESS_TOKENS` — comma-separated, one code per tester
+# secrets (never committed):
+npx wrangler secret put ANTHROPIC_API_KEY       # paste your Anthropic key
+npx wrangler secret put SUMMA_ACCESS_TOKENS     # paste an access code (comma-separated for several)
 
-After deploy you get a base URL like `https://summa-proxy.onrender.com`. In the
-Summa app settings, set the proxy URL to that and give each tester their access
-code. That's it.
+npx wrangler deploy
+```
+
+Deploy prints your URL, e.g. `https://summa-proxy.<your-subdomain>.workers.dev`.
+Test it: `curl https://…workers.dev/health`.
+
+Non-secret config (model, bundle id, size cap) lives in `wrangler.toml`.
+
+## Adding Sign in with Apple later
+
+Set three more secrets, then redeploy:
+
+```sh
+npx wrangler secret put SUMMA_SESSION_SECRET    # node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+npx wrangler secret put SUMMA_ALLOWED_EMAILS    # comma-separated approved emails
+# APPLE_BUNDLE_ID is already set in wrangler.toml
+npx wrangler deploy
+```
+
+`/session` then verifies Apple's identity token and issues a 30-day session
+token for allowlisted emails.
 
 ## Managing testers
 
-Generate a code:
+- **Access codes**: `npx wrangler secret put SUMMA_ACCESS_TOKENS` with the new
+  comma-separated list, then `npx wrangler deploy`. Remove one to revoke it.
+- **Sign-in**: update `SUMMA_ALLOWED_EMAILS` the same way. Revoking an email
+  blocks its session token on the next request.
+- Usage/cost per request is logged (`npx wrangler tail` to watch live).
 
-```sh
-node -e "console.log(require('crypto').randomBytes(16).toString('hex'))"
-```
+## Notes
 
-Add it to `SUMMA_ACCESS_TOKENS` (comma-separated) and redeploy. Remove a code to
-revoke that tester. Each request logs `token=<first 6 chars>… in=… out=… $cost`
-so you can see per-tester usage in the host's logs.
-
-## Notes / ceilings
-
-- Rate limiting is in-memory and per-instance (resets on restart). Fine for a
-  single-instance beta; use a shared store (Redis/Upstash) if you run multiple
-  instances.
-- HTTPS is provided by the host (Render/Railway/Fly) or your reverse proxy. The
-  app should always talk to the proxy over `https://` in production so access
-  codes aren't sent in the clear.
+- No custom rate limiter in code (Workers are stateless per request). If you
+  need one, add a Cloudflare **Rate Limiting** rule in the dashboard, or use a
+  KV/Durable Object counter.
+- `nodejs_compat` is enabled for `jose` (JWT verification).

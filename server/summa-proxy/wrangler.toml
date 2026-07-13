@@ -1,0 +1,12 @@
+name = "summa-proxy"
+main = "worker.js"
+compatibility_date = "2024-11-01"
+compatibility_flags = ["nodejs_compat"]
+
+# Non-secret config. Secrets (ANTHROPIC_API_KEY, SUMMA_ACCESS_TOKENS,
+# SUMMA_SESSION_SECRET, SUMMA_ALLOWED_EMAILS) are set with `wrangler secret put`
+# so they never live in this file / the repo.
+[vars]
+ANNOTATION_MODEL = "claude-sonnet-4-6"
+APPLE_BUNDLE_ID = "com.josephruocco.ScreenGlossMVP"
+MAX_TEXT_CHARS = "12000"

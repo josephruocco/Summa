@@ -3,15 +3,16 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "Annotation proxy between the Summa app and the Anthropic API.",
-  "main": "server.js",
+  "description": "Cloudflare Worker proxy between the Summa app and the Anthropic API.",
+  "main": "worker.js",
   "scripts": {
-    "start": "node server.js"
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy"
   },
   "dependencies": {
     "jose": "^5.9.6"
   },
-  "engines": {
-    "node": ">=18"
+  "devDependencies": {
+    "wrangler": "^3.99.0"
   }
 }

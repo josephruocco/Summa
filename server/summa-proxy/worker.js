@@ -128,6 +128,104 @@ async function callAnthropic(apiKey, model, userContent) {
   }
 }
 
+// Pulls complete top-level {...} objects out of a growing JSON string, starting
+// at `fromIdx`. Returns the parsed objects plus the index to resume from, so a
+// partially-received object is left for the next chunk. String/escape aware.
+function extractObjects(text, fromIdx) {
+  const objects = [];
+  let i = fromIdx;
+  const n = text.length;
+  while (i < n) {
+    while (i < n && text[i] !== "{") i++;
+    if (i >= n) break;
+    let depth = 0, inStr = false, esc = false, complete = false, j = i;
+    for (; j < n; j++) {
+      const c = text[j];
+      if (inStr) {
+        if (esc) esc = false;
+        else if (c === "\\") esc = true;
+        else if (c === '"') inStr = false;
+      } else if (c === '"') inStr = true;
+      else if (c === "{") depth++;
+      else if (c === "}") { depth--; if (depth === 0) { j++; complete = true; break; } }
+    }
+    if (!complete) break;
+    try { objects.push(JSON.parse(text.slice(i, j))); } catch {}
+    i = j;
+  }
+  return { objects, newIdx: i };
+}
+
+function streamAnnotate(cfg, visibleText, bookContext, identity) {
+  const { readable, writable } = new TransformStream();
+  const writer = writable.getWriter();
+  const enc = new TextEncoder();
+
+  (async () => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 45_000);
+    let count = 0;
+    try {
+      const resp = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: { "x-api-key": cfg.apiKey, "anthropic-version": "2023-06-01", "content-type": "application/json" },
+        body: JSON.stringify({
+          model: cfg.model,
+          max_tokens: 1500,
+          temperature: 0,
+          stream: true,
+          system: [{ type: "text", text: SYSTEM_PROMPT, cache_control: { type: "ephemeral" } }],
+          messages: [{ role: "user", content: buildUserContent(visibleText, bookContext) }],
+        }),
+        signal: controller.signal,
+      });
+      if (!resp.ok || !resp.body) {
+        console.error(`[stream] upstream ${resp.status}`);
+      } else {
+        const reader = resp.body.getReader();
+        const dec = new TextDecoder();
+        let sse = "", jsonText = "", scan = 0;
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          sse += dec.decode(value, { stream: true });
+          let nl;
+          while ((nl = sse.indexOf("\n")) >= 0) {
+            const line = sse.slice(0, nl).trim();
+            sse = sse.slice(nl + 1);
+            if (!line.startsWith("data:")) continue;
+            const data = line.slice(5).trim();
+            if (!data || data === "[DONE]") continue;
+            let evt;
+            try { evt = JSON.parse(data); } catch { continue; }
+            if (evt.type === "content_block_delta" && evt.delta?.type === "text_delta") {
+              jsonText += evt.delta.text;
+              const { objects, newIdx } = extractObjects(jsonText, scan);
+              scan = newIdx;
+              for (const o of objects) {
+                if (o && typeof o.anchor === "string" && o.anchor && typeof o.note === "string" && o.note && VALID_TYPES.has(o.type)) {
+                  await writer.write(enc.encode(JSON.stringify({ anchor: o.anchor, type: o.type, note: o.note }) + "\n"));
+                  count++;
+                }
+              }
+            }
+          }
+        }
+      }
+    } catch (e) {
+      console.error(`[stream] error: ${e?.name === "AbortError" ? "timeout" : e}`);
+    } finally {
+      clearTimeout(timer);
+      console.log(`[annotate:stream] ${identity} annotations=${count}`);
+      try { await writer.close(); } catch {}
+    }
+  })();
+
+  return new Response(readable, {
+    headers: { "content-type": "application/x-ndjson", "cache-control": "no-store" },
+  });
+}
+
 async function emailFromSessionToken(secret, token) {
   try {
     const { payload } = await jwtVerify(token, new TextEncoder().encode(secret), { issuer: SESSION_ISSUER });
@@ -211,6 +309,13 @@ export default {
     const bookContext = typeof body.bookContext === "string" ? body.bookContext : "";
     if (!visibleText.trim()) return json({ error: "visibleText required" }, 400);
     if (visibleText.length > cfg.maxChars) return json({ error: `visibleText exceeds ${cfg.maxChars} chars` }, 413);
+
+    // Streaming path: the app opts in with X-Summa-Stream, and gets annotations
+    // as newline-delimited JSON (one per line) the instant the model finishes
+    // each one, instead of waiting for the whole batch.
+    if (request.headers.get("x-summa-stream") === "1") {
+      return streamAnnotate(cfg, visibleText, bookContext, identity);
+    }
 
     const result = await callAnthropic(cfg.apiKey, cfg.model, buildUserContent(visibleText, bookContext));
     if (result.error) {

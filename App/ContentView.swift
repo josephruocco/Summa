@@ -282,9 +282,15 @@ struct WelcomeView: View {
                 }
             }
 
-            Text("Thank you for using Summa")
-                .font(.system(size: 14))
-                .foregroundStyle(.secondary)
+            VStack(spacing: 8) {
+                Text("Thank you for using Summa")
+                    .font(.system(size: 15, weight: .medium))
+                Text("Summa will read along with you and provide helpful notes worth knowing.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
 
             Button {
                 Task { await model.resumeAutomaticSession() }

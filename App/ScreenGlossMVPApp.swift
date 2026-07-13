@@ -48,7 +48,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
         let window = NSWindow(contentViewController: NSHostingController(rootView: root))
         window.title = "Summa"
-        window.styleMask = [.titled, .closable]
+        window.styleMask = [.titled, .closable, .fullSizeContentView]
+        window.titlebarAppearsTransparent = true
+        window.titleVisibility = .hidden
+        window.backgroundColor = .white
+        window.isMovableByWindowBackground = true
         window.isReleasedWhenClosed = false
         window.level = .floating
         window.delegate = self

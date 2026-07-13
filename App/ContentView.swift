@@ -266,37 +266,27 @@ struct WelcomeView: View {
     // elsewhere.
     private let whatsNewURL = URL(string: "https://github.com/josephruocco/Summa/releases/latest")!
 
-    var body: some View {
-        VStack(spacing: 22) {
-            // Uses the "SummaLogo" image asset if present; falls back to a
-            // serif wordmark that echoes the logo until the asset is added.
-            if let logo = NSImage(named: "SummaLogo") {
-                Image(nsImage: logo)
-                    .resizable()
-                    .scaledToFit()
-                    .frame(maxWidth: 300, maxHeight: 130)
-            } else {
-                HStack(spacing: 0) {
-                    Text("S")
-                        .font(.system(size: 52, weight: .bold, design: .serif))
-                        .foregroundStyle(.white)
-                        .frame(width: 72, height: 72)
-                        .background(RoundedRectangle(cornerRadius: 6).fill(Color(red: 0.72, green: 0.10, blue: 0.13)))
-                        .overlay(RoundedRectangle(cornerRadius: 6).inset(by: 5).stroke(.white, lineWidth: 1.5))
-                    Text("UMMA")
-                        .font(.system(size: 46, weight: .semibold, design: .serif))
-                        .padding(.leading, 10)
-                }
-            }
+    private let summaRed = Color(red: 0.72, green: 0.10, blue: 0.13)
+    private let ink = Color(red: 0.11, green: 0.11, blue: 0.12)
 
-            VStack(spacing: 8) {
+    var body: some View {
+        VStack(spacing: 20) {
+            Image("SummaLogo")
+                .resizable()
+                .scaledToFit()
+                .frame(width: 260)
+                .padding(.top, 6)
+
+            VStack(spacing: 9) {
                 Text("Thank you for using Summa")
-                    .font(.system(size: 15, weight: .medium))
-                Text("Summa will read along with you and provide helpful notes worth knowing.")
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
+                    .font(.system(size: 18, weight: .semibold, design: .serif))
+                    .foregroundStyle(ink)
+                Text("Summa reads along with you and surfaces helpful notes worth knowing.")
+                    .font(.system(size: 13))
+                    .foregroundStyle(ink.opacity(0.55))
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: 330)
             }
 
             Button {
@@ -304,28 +294,48 @@ struct WelcomeView: View {
                 onDismiss()
             } label: {
                 Text("Click to start my session")
+                    .font(.system(size: 14.5, weight: .semibold))
+                    .foregroundStyle(.white)
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, 3)
+                    .padding(.vertical, 12)
+                    .background(
+                        LinearGradient(
+                            colors: [summaRed.opacity(0.96), summaRed.opacity(0.82)],
+                            startPoint: .top, endPoint: .bottom
+                        )
+                    )
+                    .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 11, style: .continuous)
+                            .stroke(.white.opacity(0.25), lineWidth: 1)
+                    )
+                    .shadow(color: summaRed.opacity(0.35), radius: 9, y: 4)
             }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
+            .buttonStyle(.plain)
+            .frame(maxWidth: 320)
+            .padding(.top, 2)
             .keyboardShortcut(.defaultAction)
 
-            VStack(spacing: 3) {
+            VStack(spacing: 4) {
                 HStack(spacing: 6) {
                     Text("Version \(appVersion)")
                     Text("·")
                     Link("What's New", destination: whatsNewURL)
+                        .tint(summaRed)
                 }
                 .font(.system(size: 11))
                 Text("© 2026 Joseph Ruocco. All rights reserved.")
                     .font(.system(size: 10))
             }
-            .foregroundStyle(.secondary)
+            .foregroundStyle(ink.opacity(0.45))
             .padding(.top, 6)
         }
-        .padding(36)
-        .frame(width: 420)
+        .padding(.horizontal, 44)
+        .padding(.top, 30)
+        .padding(.bottom, 30)
+        .frame(width: 460)
+        .background(Color.white)
+        .preferredColorScheme(.light)
         .onAppear { NSApp.activate(ignoringOtherApps: true) }
     }
 }

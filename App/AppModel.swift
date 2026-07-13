@@ -22,7 +22,6 @@ final class AppModel: ObservableObject {
     @Published var windowLocked: Bool = false
     @Published var status: String = "Starting up…"
     @Published var showVocab: Bool = true
-    @Published var showRefs: Bool = true
     @Published var overlayLayout: OverlayAnnotationLayout = .hover {
         didSet {
             UserDefaults.standard.set(overlayLayout.rawValue, forKey: Self.overlayLayoutKey)
@@ -71,7 +70,6 @@ final class AppModel: ObservableObject {
     private var scrollMonitor: ScrollActivityMonitor?
     private var isScrolling = false
     private var lastVocab: [HighlightBox] = []
-    private var lastRefs: [HighlightBox] = []
     private var lastSidebarAnchorX: CGFloat = 0
     private var premiumTask: Task<Void, Never>?
     private var lastPremiumTextHash: Int?
@@ -222,7 +220,6 @@ final class AppModel: ObservableObject {
         sessionOn = false
         windowLocked = false
         lastVocab = []
-        lastRefs = []
         lastHighlightCounts = (0, 0)
         Task { await recorder.reset() }
         status = "Stopped."
@@ -377,37 +374,29 @@ final class AppModel: ObservableObject {
         let tokens = await OCR.ocrTokens(from: frame.cgImage, cropProfile: cropProfile)
 
         let overlaySize = overlay?.currentContentSize ?? frame.size
-        // When premium is on, the LLM annotator is the ONLY source of reference
-        // highlights -- the legacy keyword-Wikipedia matcher is suppressed
-        // entirely (it's what produced junk like "Hanoverian" -> a dog breed and
-        // "Lord" -> Lorde the singer). Gated on the toggle alone, not on whether
-        // a key/proxy is configured, so there's never a window where the naive
-        // matcher leaks through. Vocab dictionary highlights are unaffected.
-        let rawResult = engine.computeHighlights(
+        // References come exclusively from the premium AI annotator now; the
+        // legacy keyword matcher (which produced junk like "Hanoverian" -> a dog
+        // breed and "Lord" -> Lorde the singer) has been removed. This engine
+        // only supplies vocab dictionary highlights.
+        let vocab = enrichContexts(
+            engine.computeHighlights(tokens: tokens, windowSize: overlaySize, showVocab: showVocab),
             tokens: tokens,
-            windowSize: overlaySize,
-            showVocab: showVocab,
-            showRefs: showRefs && !premiumAnnotations
-        )
-        let result = (
-            vocab: enrichContexts(rawResult.vocab, tokens: tokens, overlaySize: overlaySize),
-            refs: enrichContexts(rawResult.refs, tokens: tokens, overlaySize: overlaySize)
+            overlaySize: overlaySize
         )
         let sidebarAnchorX = computeSidebarAnchorX(tokens: tokens, overlaySize: overlaySize)
 
-        lastVocab = result.vocab
-        lastRefs = result.refs
+        lastVocab = vocab
         lastSidebarAnchorX = sidebarAnchorX
-        lastHighlightCounts = (result.vocab.count, result.refs.count)
-        overlay?.setHighlights(vocab: result.vocab, refs: result.refs, sidebarAnchorX: sidebarAnchorX)
+        lastHighlightCounts = (vocab.count, 0)
+        overlay?.setHighlights(vocab: vocab, sidebarAnchorX: sidebarAnchorX)
         overlay?.setOCRTokens(tokens, overlaySize: overlaySize)
 
         runPremiumAnnotationIfEnabled(tokens: tokens, overlaySize: overlaySize)
 
         Task {
             await self.recorder.ingest(
-                vocab: result.vocab,
-                refs: result.refs,
+                vocab: vocab,
+                refs: [],
                 tokens: tokens,
                 overlaySize: overlaySize
             )
@@ -459,7 +448,6 @@ final class AppModel: ObservableObject {
                 } else {
                     self.overlay?.setHighlights(
                         vocab: self.lastVocab,
-                        refs: self.lastRefs,
                         sidebarAnchorX: self.lastSidebarAnchorX
                     )
                     self.status = self.sessionOn ? "Session running on \(self.currentWindowLabel)." : "Paused"

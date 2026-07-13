@@ -30,7 +30,6 @@ final class OverlayController {
     private let host: NSHostingView<OverlayView>
 
     private var vocab: [HighlightBox] = []
-    private var refs: [HighlightBox] = []
     // Premium (AI) annotations for the current screen. Rendered as reference
     // highlights, but their notes are seeded into LookupCache below so hover
     // shows the editorial note directly instead of a Wikipedia lookup.
@@ -122,9 +121,8 @@ final class OverlayController {
         }
     }
 
-    func setHighlights(vocab: [HighlightBox], refs: [HighlightBox], sidebarAnchorX: CGFloat) {
+    func setHighlights(vocab: [HighlightBox], sidebarAnchorX: CGFloat) {
         self.vocab = vocab
-        self.refs = refs
         self.sidebarAnchorX = sidebarAnchorX
         pruneSidebarState()
 
@@ -202,7 +200,6 @@ final class OverlayController {
 
     func clear() {
         vocab = []
-        refs = []
         premiumRefs = []
         premiumLoading = false
         lastOCRTokenRects = []
@@ -502,7 +499,7 @@ final class OverlayController {
     private func pruneSidebarState() {
         let validKeys = Set(orderedUniqueHighlights().map(sidebarKey))
         sideTooltips = sideTooltips.filter { validKeys.contains($0.key) }
-        let activeLookupKeys = Set((vocab + refs).map(lookupKey))
+        let activeLookupKeys = Set((vocab + premiumRefs).map(lookupKey))
         suppressedLookupKeys = suppressedLookupKeys.filter { activeLookupKeys.contains($0) }
 
         for (key, task) in sideLookupTasks where !validKeys.contains(key) {
@@ -572,7 +569,7 @@ final class OverlayController {
     }
 
     private var filteredRefs: [HighlightBox] {
-        (refs + premiumRefs).filter { !suppressedLookupKeys.contains(lookupKey(for: $0)) }
+        premiumRefs.filter { !suppressedLookupKeys.contains(lookupKey(for: $0)) }
     }
 
     private var visibleHighlights: [HighlightBox] {

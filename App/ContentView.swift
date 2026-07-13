@@ -175,7 +175,6 @@ struct SettingsView: View {
         Form {
             Section("Highlights") {
                 Toggle("Show vocab highlights", isOn: $model.showVocab)
-                Toggle("Show reference highlights", isOn: $model.showRefs)
                 Toggle("Premium AI annotations", isOn: $model.premiumAnnotations)
                 Toggle("Show annotation debug", isOn: $model.showAnnotationDebug)
             }

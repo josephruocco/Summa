@@ -31,6 +31,11 @@ struct HighlightBox: Identifiable, Hashable {
     }
 }
 
+// Detects vocabulary highlights (rare-ish words that have a dictionary entry).
+// Reference highlights used to be produced here too, by a capitalized-phrase
+// matcher feeding the legacy keyword-Wikipedia resolver. That resolver is gone;
+// references now come exclusively from the premium AI annotator, so this engine
+// only handles vocab.
 final class HighlightEngine {
 
     let changeGate = ChangeGate()
@@ -46,36 +51,23 @@ final class HighlightEngine {
         "up","down","over","under","into","out","about"
     ]
 
-    // Words allowed *inside* a capitalized phrase (“West Indies”, “Battery Park”, etc.)
-    private let phraseConnectors: Set<String> = ["of","the","and","de","la","da","van","von"]
-
-    // Common words that SHOULD still be allowed as parts of Proper-Noun phrases.
-    // (Fixes “Corlears Hook”, “Battery Park”, “Broadway Street”, etc.)
-    private let refCommonAllow: Set<String> = [
-        "hook","point","park","square","street","st","avenue","ave","road","rd","lane","ln",
-        "river","bay","harbor","harbour","port","fort","mt","mount","lake","island","isles",
-        "cove","hill","heights","bridge","pier","wharf","dock","slip"
-    ]
-
     func computeHighlights(
         tokens: [OCRToken],
         windowSize: CGSize,
-        showVocab: Bool,
-        showRefs: Bool
-    ) -> (vocab: [HighlightBox], refs: [HighlightBox]) {
+        showVocab: Bool
+    ) -> [HighlightBox] {
+
+        guard showVocab else { return [] }
 
         var vocab: [HighlightBox] = []
-        var refs: [HighlightBox] = []
 
         // Load common-word list (bundle: common_words_en_20k.txt)
         CommonWords.loadIfNeeded()
         let common = CommonWords.set
 
-        // Much tighter caps = less clutter, more signal.
+        // Tight cap = less clutter, more signal.
         let maxVocab = 28
-        let maxRefs  = 30
         var seenVocabTerms = Set<String>()
-        var seenRefTerms = Set<String>()
 
         struct T {
             let idx: Int
@@ -83,9 +75,6 @@ final class HighlightEngine {
             let cleaned: String
             let lower: String
             let rect: CGRect // overlay rect
-            let startsWithUpper: Bool
-            let isConnector: Bool
-            let hasDigit: Bool
         }
 
         func normalize(_ s: String) -> String {
@@ -98,28 +87,8 @@ final class HighlightEngine {
                 .replacingOccurrences(of: "’", with: "'")
         }
 
-        func startsUpper(_ s: String) -> Bool {
-            guard let u = s.unicodeScalars.first else { return false }
-            return CharacterSet.uppercaseLetters.contains(u)
-        }
-
         func containsDigit(_ s: String) -> Bool {
             s.range(of: #"\d"#, options: .regularExpression) != nil
-        }
-
-        func isLikelyBadSingleReference(_ s: String) -> Bool {
-            let trimmed = s.trimmingCharacters(in: .whitespacesAndNewlines)
-            if trimmed.count <= 2 { return true }
-
-            let letters = trimmed.filter(\.isLetter)
-            if letters.count <= 2 { return true }
-
-            let uppercaseCount = letters.filter(\.isUppercase).count
-            if uppercaseCount == letters.count, letters.count <= 5 {
-                return true
-            }
-
-            return false
         }
 
         // Build enriched token list + overlay rects
@@ -135,21 +104,11 @@ final class HighlightEngine {
             if cleaned.count < 2 { continue }
 
             let lower = cleaned.lowercased()
-            let hasDigit = containsDigit(cleaned)
-            if hasDigit { continue }
+            if containsDigit(cleaned) { continue }
 
             let rect = OCR.normToRectInOverlay_TopLeftOrigin(t.rectNorm, overlaySize: windowSize)
 
-            ts.append(T(
-                idx: i,
-                raw: raw,
-                cleaned: cleaned,
-                lower: lower,
-                rect: rect,
-                startsWithUpper: startsUpper(cleaned),
-                isConnector: phraseConnectors.contains(lower),
-                hasDigit: hasDigit
-            ))
+            ts.append(T(idx: i, raw: raw, cleaned: cleaned, lower: lower, rect: rect))
         }
 
         // Sort into reading order (top-to-bottom, left-to-right). Assumes top-left origin overlay coords.
@@ -160,7 +119,7 @@ final class HighlightEngine {
             return $0.rect.minX < $1.rect.minX
         }
 
-        // ---- 1) Group into lines ----
+        // ---- Group into lines ----
         var lines: [[T]] = []
         var current: [T] = []
         var currentY: CGFloat? = nil
@@ -178,7 +137,6 @@ final class HighlightEngine {
                 // keep running average for stability
                 currentY = (y * CGFloat(current.count - 1) + t.rect.midY) / CGFloat(current.count)
             } else {
-                // finalize line
                 current.sort { $0.rect.minX < $1.rect.minX }
                 lines.append(current)
                 current = [t]
@@ -195,9 +153,8 @@ final class HighlightEngine {
         for (pos, t) in ts.enumerated() { idxToTsPos[t.idx] = pos }
 
         // Returns surrounding context, bounded by sentence endings (.!?) within a max window.
-        // Sentence-scoped context is more coherent for disambiguation than a flat token window.
+        // Sentence-scoped context is more coherent than a flat token window.
         func context(aroundTsPos pos: Int, window: Int = 20) -> (before: String, after: String) {
-            // Scan backwards for the most recent sentence boundary within the window
             var beforeStart = max(0, pos - window)
             for p in stride(from: pos - 1, through: max(0, pos - window), by: -1) {
                 let r = ts[p].raw
@@ -207,7 +164,6 @@ final class HighlightEngine {
                 }
             }
 
-            // Scan forwards for the next sentence boundary within the window
             var afterEnd = min(ts.count, pos + window + 1)
             for p in (pos + 1)..<min(ts.count, pos + window + 1) {
                 let r = ts[p].raw
@@ -222,187 +178,28 @@ final class HighlightEngine {
             return (before, after)
         }
 
-        // Track tokens already consumed by phrase refs so we don't also highlight pieces.
-        var consumedTokenIdx = Set<Int>()
+        // ---- Vocab highlights: definition exists AND "rare-ish" ----
+        for line in lines {
+            for t in line {
+                if vocab.count >= maxVocab { break }
 
-        func unionRect(_ rects: [CGRect]) -> CGRect {
-            rects.reduce(into: CGRect.null) { acc, r in
-                acc = acc.union(r)
-            }
-        }
+                if t.cleaned.count < 5 { continue }
+                if stopwords.contains(t.lower) { continue }
+                if common.contains(t.lower) { continue }
 
-        func gapOK(prev: T, next: T) -> Bool {
-            let gap = next.rect.minX - prev.rect.maxX
-            // Allow small gaps relative to text height (OCR spacing)
-            return gap >= -2 && gap <= max(10, prev.rect.height * 0.9)
-        }
-
-        func isRefNoise(_ t: T) -> Bool {
-            // Always block true stopwords
-            if stopwords.contains(t.lower) { return true }
-            // Allow common “suffix” words in proper nouns (Hook, Park, Slip, etc.)
-            if refCommonAllow.contains(t.lower) { return false }
-            // Otherwise, treat “common list” words as noise for refs
-            return common.contains(t.lower)
-        }
-
-        // ---- 2) Build multi-word phrase refs (e.g., “Corlears Hook”) ----
-        if showRefs && refs.count < maxRefs {
-            for line in lines {
-                var i = 0
-                while i < line.count {
-                    let t = line[i]
-
-                    // Start only on a capitalized, non-noise token
-                    guard t.startsWithUpper, !isRefNoise(t) else {
-                        i += 1
-                        continue
-                    }
-
-                    var j = i
-                    var parts: [T] = []
-                    var capitalCount = 0
-
-                    while j < line.count {
-                        let u = line[j]
-
-                        // spacing constraint (except first token)
-                        if !parts.isEmpty {
-                            guard gapOK(prev: parts.last!, next: u) else { break }
-                        }
-
-                        // Conjunctions behave differently from prepositions here:
-                        // once we already have a complete capitalized phrase, "and"
-                        // usually starts a new list item ("White Steed and Albatross"),
-                        // while "of/the" can still be internal to the same phrase.
-                        if u.lower == "and", capitalCount >= 2 {
-                            break
-                        }
-
-                        // Accept: Capitalized tokens, plus small connector words inside the phrase.
-                        // Don't extend if the next token is the same word as the last — this
-                        // prevents "Christiania: Christiania" (rhetorical repetition) from being
-                        // merged into a nonsense two-word phrase that consumes both occurrences.
-                        //
-                        // Extension rule: non-noise caps always extend. Additionally, a common-word
-                        // cap (e.g. "Dick" in "Moby Dick") extends only as the IMMEDIATE next token
-                        // after a single confirmed proper noun — preventing runaway chains like
-                        // "Austrian Empire Cæsarian" while still forming "Moby Dick".
-                        let previousWasConnector = parts.last?.isConnector ?? false
-                        let connectorBeforePrevious = parts.count >= 2 ? parts[parts.count - 2].isConnector : false
-                        let isImmediateCommonCap = u.startsWithUpper
-                            && !stopwords.contains(u.lower)
-                            && isRefNoise(u)
-                            && (parts.count == 1 || previousWasConnector || connectorBeforePrevious)
-                        if u.startsWithUpper && (!isRefNoise(u) || isImmediateCommonCap) {
-                            if u.lower == parts.last?.lower { break }
-                            parts.append(u)
-                            capitalCount += 1
-                            j += 1
-                            continue
-                        }
-
-                        if u.isConnector, !parts.isEmpty, j + 1 < line.count {
-                            // Keep short connector chains when they lead into a capitalized token.
-                            var lookahead = j + 1
-                            var chainedConnectors = 0
-                            var connectorAllowed = false
-                            while lookahead < line.count && chainedConnectors <= 2 {
-                                let v = line[lookahead]
-                                if !gapOK(prev: line[lookahead - 1], next: v) { break }
-                                if v.startsWithUpper {
-                                    connectorAllowed = !isRefNoise(v) || (v.startsWithUpper && !stopwords.contains(v.lower))
-                                    break
-                                }
-                                guard v.isConnector else { break }
-                                chainedConnectors += 1
-                                lookahead += 1
-                            }
-
-                            if connectorAllowed && gapOK(prev: parts.last!, next: u) {
-                                parts.append(u)
-                                j += 1
-                                continue
-                            }
-                        }
-
-                        break
-                    }
-
-                    // Emit phrase only if it has 2+ capitalized tokens (true phrase)
-                    if capitalCount >= 2, refs.count < maxRefs {
-                        let phrase = parts.map { $0.cleaned }.joined(separator: " ")
-                        if !seenRefTerms.insert(phrase.lowercased()).inserted { i = j; continue }
-                        let rect = unionRect(parts.map { $0.rect })
-                        let ctxBefore = parts.first.flatMap { idxToTsPos[$0.idx] }.map {
-                            ts[max(0, $0 - 15)..<$0].map { $0.cleaned }.joined(separator: " ")
-                        } ?? ""
-                        let ctxAfter = parts.last.flatMap { idxToTsPos[$0.idx] }.map {
-                            ts[($0 + 1)..<min(ts.count, $0 + 16)].map { $0.cleaned }.joined(separator: " ")
-                        } ?? ""
-
-                        refs.append(HighlightBox(text: phrase, rect: rect, kind: .reference, contextBefore: ctxBefore, contextAfter: ctxAfter))
-
-                        for p in parts { consumedTokenIdx.insert(p.idx) }
-                        i = j
-                        continue
-                    }
-
-                    i += 1
-                }
-            }
-        }
-
-        // ---- 3) Single-token refs (but stricter than before) ----
-        if showRefs && refs.count < maxRefs {
-            for line in lines {
-                for (k, t) in line.enumerated() {
-                    if refs.count >= maxRefs { break }
-                    if consumedTokenIdx.contains(t.idx) { continue }
-                    guard t.startsWithUpper else { continue }
-                    if isRefNoise(t) { continue }
-
-                    let isFirstInLine = (k == 0)
-                    let looksNamey = t.cleaned.count >= 6
-
-                    if isFirstInLine && !looksNamey { continue }
-                    if isLikelyBadSingleReference(t.cleaned) { continue }
-                    if !seenRefTerms.insert(t.lower).inserted { continue }
+                if let _ = Lookups.definition(for: t.lower) {
+                    if t.lower.hasSuffix("ly") && t.cleaned.count <= 7 { continue }
+                    if t.lower.hasSuffix("ing") && t.cleaned.count <= 9 { continue }
+                    if (t.lower.hasSuffix("able") || t.lower.hasSuffix("ible")) && t.cleaned.count <= 9 { continue }
+                    if !seenVocabTerms.insert(t.lower).inserted { continue }
 
                     let (ctxBefore, ctxAfter) = idxToTsPos[t.idx].map { context(aroundTsPos: $0) } ?? ("", "")
-                    refs.append(HighlightBox(text: t.cleaned, rect: t.rect, kind: .reference, contextBefore: ctxBefore, contextAfter: ctxAfter))
-                    consumedTokenIdx.insert(t.idx)
+                    vocab.append(HighlightBox(text: t.cleaned, rect: t.rect, kind: .vocab, contextBefore: ctxBefore, contextAfter: ctxAfter))
                 }
-                if refs.count >= maxRefs { break }
             }
+            if vocab.count >= maxVocab { break }
         }
 
-        // ---- 4) Vocab highlights: definition exists AND “rare-ish” ----
-        if showVocab && vocab.count < maxVocab {
-            for line in lines {
-                for t in line {
-                    if vocab.count >= maxVocab { break }
-                    if consumedTokenIdx.contains(t.idx) { continue } // don’t vocab-highlight inside phrases/refs
-
-                    // basic filters
-                    if t.cleaned.count < 5 { continue }
-                    if stopwords.contains(t.lower) { continue }
-                    if common.contains(t.lower) { continue }
-
-                    if let _ = Lookups.definition(for: t.lower) {
-                        if t.lower.hasSuffix("ly") && t.cleaned.count <= 7 { continue }
-                        if t.lower.hasSuffix("ing") && t.cleaned.count <= 9 { continue }
-                        if (t.lower.hasSuffix("able") || t.lower.hasSuffix("ible")) && t.cleaned.count <= 9 { continue }
-                        if !seenVocabTerms.insert(t.lower).inserted { continue }
-
-                        let (ctxBefore, ctxAfter) = idxToTsPos[t.idx].map { context(aroundTsPos: $0) } ?? ("", "")
-                        vocab.append(HighlightBox(text: t.cleaned, rect: t.rect, kind: .vocab, contextBefore: ctxBefore, contextAfter: ctxAfter))
-                    }
-                }
-                if vocab.count >= maxVocab { break }
-            }
-        }
-
-        return (vocab: vocab, refs: refs)
+        return vocab
     }
 }

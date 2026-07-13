@@ -308,7 +308,7 @@ struct WelcomeView: View {
                 Text("Thank you for using Summa")
                     .font(.system(size: 20, weight: .semibold, design: .serif))
                     .foregroundStyle(ink)
-                Text("Summa reads along with you and surfaces helpful notes worth knowing.")
+                Text("The annotated edition of whatever you're reading.")
                     .font(.system(size: 14, design: .serif))
                     .italic()
                     .foregroundStyle(ink.opacity(0.6))

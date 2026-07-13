@@ -397,12 +397,6 @@ final class OverlayController {
             onReportErrata: { [weak self] phrase, annotation in
                 self?.openErrataForm(phrase: phrase, annotation: annotation)
             },
-            onCandidateSelected: { [weak self] highlight, selected, allCandidates in
-                self?.selectCandidate(selected, forHighlight: highlight, allCandidates: allCandidates)
-            },
-            onCandidatesDismissed: { [weak self] highlight, requested, allCandidates in
-                self?.dismissCandidates(forHighlight: highlight, requested: requested, allCandidates: allCandidates)
-            },
             onTooltipFrameChanged: { [weak self] frame in
                 guard let self else { return }
                 self.tooltipFrame = frame
@@ -558,58 +552,14 @@ final class OverlayController {
             return .dictionary(term: text, definition: def)
         }
 
-        if let cached = LookupCache.shared.multiOption(key) {
-            return .multiOption(cached)
-        }
-
+        // Premium annotations pre-seed their gloss into LookupCache under this
+        // key (see setPremiumHighlights). With the legacy resolver removed, that
+        // cache is the only source of reference tooltips -- an uncached ref has
+        // no annotation, so there is nothing to show.
         if let cached = LookupCache.shared.wikipedia(key) {
             return cached.status == .ok ? .wiki(cached) : nil
         }
-
-        let lookupResult = await Wikipedia.lookupWithCandidates(text, contextBefore: h.contextBefore, contextAfter: h.contextAfter)
-        switch lookupResult {
-        case .single(let wiki):
-            LookupCache.shared.setWikipedia(key, wiki)
-            return wiki.status == .ok ? .wiki(wiki) : nil
-        case .ambiguous(let candidateSet):
-            LookupCache.shared.setMultiOption(key, candidateSet)
-            return .multiOption(candidateSet)
-        }
-    }
-
-    func selectCandidate(_ selected: WikiResult, forHighlight h: HighlightBox, allCandidates: [WikiResult] = []) {
-        let key = lookupKey(for: h)
-        let sKey = sidebarKey(for: h)
-        LookupCache.shared.setWikipedia(key, selected) // also clears multiOption for this key
-        TrainingDataStore.shared.recordSelection(
-            highlight: h,
-            windowLabel: windowLabel,
-            selected: selected,
-            allCandidates: allCandidates
-        )
-
-        if layoutMode == .side {
-            sideTooltips[sKey] = .wiki(selected)
-            render(hovered: nil, tooltip: nil)
-        } else {
-            render(hovered: hovered, tooltip: .wiki(selected))
-        }
-    }
-
-    func dismissCandidates(forHighlight h: HighlightBox, requested: String, allCandidates: [WikiResult]) {
-        let key = lookupKey(for: h)
-        let sKey = sidebarKey(for: h)
-        LookupCache.shared.clearMultiOption(key)
-        suppressedLookupKeys.insert(key)
-        sideTooltips.removeValue(forKey: sKey)
-        hovered = nil
-        TrainingDataStore.shared.recordDismissal(
-            highlight: h,
-            windowLabel: windowLabel,
-            requested: requested,
-            allCandidates: allCandidates
-        )
-        render(hovered: nil, tooltip: nil)
+        return nil
     }
 
     private func sidebarKey(for highlight: HighlightBox) -> String {
@@ -653,5 +603,4 @@ enum OverlayTooltip: Equatable {
     case loading
     case dictionary(term: String, definition: String)
     case wiki(WikiResult)
-    case multiOption(WikiCandidateSet)
 }

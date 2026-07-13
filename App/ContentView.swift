@@ -167,10 +167,9 @@ struct ContentView: View {
 
 // The Settings window (opened from the menu panel's "Open Settings" button).
 // Holds everything that used to clutter the menu: highlight toggles, premium
-// AI account/credentials, training data, export, and feedback.
+// AI account/credentials, export, and feedback.
 struct SettingsView: View {
     @EnvironmentObject var model: AppModel
-    @State private var hasTrainingData = TrainingDataStore.shared.hasData
 
     var body: some View {
         Form {
@@ -221,22 +220,6 @@ struct SettingsView: View {
                     Task { await model.exportCatalog() }
                 }
                 .disabled(!model.sessionOn || !model.hasExportFolder)
-            }
-
-            Section("Training Data") {
-                Text("Summa keeps a local log of which annotation you pick when multiple options are shown. Nothing is uploaded automatically.")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                Button("Reveal Training Log") {
-                    if let url = TrainingDataStore.shared.storageFileURL {
-                        NSWorkspace.shared.activateFileViewerSelecting([url])
-                    }
-                }
-                Button("Clear Training Log", role: .destructive) {
-                    TrainingDataStore.shared.clearAll()
-                    hasTrainingData = false
-                }
-                .disabled(!hasTrainingData)
             }
 
             Section {

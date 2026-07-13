@@ -282,8 +282,9 @@ struct WelcomeView: View {
             if let logo = logoImage {
                 Image(nsImage: logo)
                     .resizable()
-                    .scaledToFit()
-                    .frame(width: 260)
+                    .interpolation(.high)
+                    .aspectRatio(contentMode: .fit)
+                    .frame(width: 300, height: 100)
                     .padding(.top, 6)
             } else {
                 HStack(spacing: 0) {

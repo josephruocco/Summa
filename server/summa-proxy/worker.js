@@ -50,18 +50,15 @@ function config(env) {
   };
 }
 
-function buildPrompt(visibleText, bookContext) {
-  const sourceLine = bookContext ? `Source (for your reference only): ${bookContext}\n\n` : "";
-  return `You are an editor annotating literature for an intelligent, well-read general reader, in the manner of a Norton Critical Edition.
+// Static instructions -- identical on every request, so this block is marked
+// cacheable (cache_control below). Only the per-screen text varies, and it goes
+// in the user message.
+const SYSTEM_PROMPT = `You are an editor annotating literature for an intelligent, well-read general reader, in the manner of a Norton Critical Edition.
 
-${sourceLine}The text below is what is currently visible on the reader's screen: a partial view of a longer work, captured by OCR. It may begin or end mid-sentence and contain minor OCR errors. Annotate only what is fully visible here. Do not reference earlier or later parts of the work you cannot see.
-
-<screen>
-${visibleText}
-</screen>
+The user message contains the text currently visible on the reader's screen: a partial view of a longer work, captured by OCR. It may begin or end mid-sentence and contain minor OCR errors. Annotate only what is fully visible. Do not reference earlier or later parts of the work you cannot see.
 
 Return a JSON array. Each element:
-{"anchor": "<a short exact substring copied from the text above>", "type": "<allusion|context|philology|interpretation>", "note": "<= 45 words"}
+{"anchor": "<a short exact substring copied from the screen text>", "type": "<allusion|context|philology|interpretation>", "note": "<= 45 words"}
 
 Types:
 - allusion: a biblical, classical, literary, or mythological source.
@@ -74,12 +71,17 @@ Rules:
 - Be selective: at most roughly one annotation per two sentences. Zero annotations is a correct, valid answer for plain text. Do not pad.
 - The anchor must be copied verbatim from the text so it can be located on screen, and must be SHORT: a single word or a short phrase, never a whole sentence.
 - One annotation per distinct reference, each anchored to the specific named thing itself -- the exact title, name, place, or term -- NOT the clause around it. Never bundle several references into a single long anchor. When the text quotes a title, anchor exactly that quoted title.
+- Do catch dated or period labels for peoples, nations, dynasties, and groups (archaic ethnonyms, historical or era-specific names such as "Red Men of America", "Hanoverian", "Pegu") -- a modern reader wants these placed in context.
 - Terse, factual, confident register. No hedging, no throat-clearing.
 
 For example, in a sentence like: the grand old kings of Pegu placing the title "Lord of the White Elephants" above all their other ascriptions of dominion; and the modern kings of Siam unfurling the same snow-white quadruped
 annotate "Pegu", "Lord of the White Elephants", and "Siam" as three separate entries, each with its own short anchor -- never as one long anchor spanning the whole clause.
 
 Return only the JSON array, no other text.`;
+
+function buildUserContent(visibleText, bookContext) {
+  const sourceLine = bookContext ? `Source (for your reference only): ${bookContext}\n\n` : "";
+  return `${sourceLine}<screen>\n${visibleText}\n</screen>`;
 }
 
 function parseAnnotations(text) {
@@ -98,14 +100,22 @@ function parseAnnotations(text) {
     .map((a) => ({ anchor: a.anchor, type: a.type, note: a.note }));
 }
 
-async function callAnthropic(apiKey, model, prompt) {
+async function callAnthropic(apiKey, model, userContent) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 30_000);
   try {
     const resp = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: { "x-api-key": apiKey, "anthropic-version": "2023-06-01", "content-type": "application/json" },
-      body: JSON.stringify({ model, max_tokens: 1500, temperature: 0, messages: [{ role: "user", content: prompt }] }),
+      body: JSON.stringify({
+        model,
+        max_tokens: 1500,
+        temperature: 0,
+        // Static instructions cached on Anthropic's side; only the screen text
+        // varies per call, cutting input latency and ~90% of input cost.
+        system: [{ type: "text", text: SYSTEM_PROMPT, cache_control: { type: "ephemeral" } }],
+        messages: [{ role: "user", content: userContent }],
+      }),
       signal: controller.signal,
     });
     if (!resp.ok) return { error: `anthropic ${resp.status}` };
@@ -202,7 +212,7 @@ export default {
     if (!visibleText.trim()) return json({ error: "visibleText required" }, 400);
     if (visibleText.length > cfg.maxChars) return json({ error: `visibleText exceeds ${cfg.maxChars} chars` }, 413);
 
-    const result = await callAnthropic(cfg.apiKey, cfg.model, buildPrompt(visibleText, bookContext));
+    const result = await callAnthropic(cfg.apiKey, cfg.model, buildUserContent(visibleText, bookContext));
     if (result.error) {
       console.error(`[annotate] upstream error: ${result.error}`);
       return json({ error: "upstream failure" }, 502);

@@ -17,6 +17,15 @@ struct ScreenGlossMVPApp: App {
         }
         .menuBarExtraStyle(.window)
 
+        // Welcome window: shown on launch, with the logo and a one-click
+        // "start my session on the current window" button.
+        Window("Summa", id: "welcome") {
+            WelcomeView()
+                .environmentObject(model)
+        }
+        .windowResizability(.contentSize)
+        .defaultPosition(.center)
+
         Settings {
             SettingsView()
                 .environmentObject(model)

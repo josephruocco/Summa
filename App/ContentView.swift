@@ -251,3 +251,55 @@ struct SettingsView: View {
         .frame(width: 460, height: 600)
     }
 }
+
+// Welcome window shown on launch: the Summa logo and a single button that
+// starts a session on the current window (the same as flipping the menu-bar
+// toggle), then closes itself.
+struct WelcomeView: View {
+    @EnvironmentObject var model: AppModel
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(spacing: 22) {
+            // Uses the "SummaLogo" image asset if present; falls back to a
+            // serif wordmark that echoes the logo until the asset is added.
+            if let logo = NSImage(named: "SummaLogo") {
+                Image(nsImage: logo)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(maxWidth: 300, maxHeight: 130)
+            } else {
+                HStack(spacing: 0) {
+                    Text("S")
+                        .font(.system(size: 52, weight: .bold, design: .serif))
+                        .foregroundStyle(.white)
+                        .frame(width: 72, height: 72)
+                        .background(RoundedRectangle(cornerRadius: 6).fill(Color(red: 0.72, green: 0.10, blue: 0.13)))
+                        .overlay(RoundedRectangle(cornerRadius: 6).inset(by: 5).stroke(.white, lineWidth: 1.5))
+                    Text("UMMA")
+                        .font(.system(size: 46, weight: .semibold, design: .serif))
+                        .padding(.leading, 10)
+                }
+            }
+
+            Text("Literature, annotated.")
+                .font(.system(size: 13))
+                .foregroundStyle(.secondary)
+
+            Button {
+                Task { await model.resumeAutomaticSession() }
+                dismiss()
+            } label: {
+                Text("Start my session on current window")
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 3)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .keyboardShortcut(.defaultAction)
+        }
+        .padding(36)
+        .frame(width: 420)
+        .onAppear { NSApp.activate(ignoringOtherApps: true) }
+    }
+}

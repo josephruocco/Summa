@@ -282,15 +282,15 @@ struct WelcomeView: View {
                 }
             }
 
-            Text("Literature, annotated.")
-                .font(.system(size: 13))
+            Text("Thank you for using Summa")
+                .font(.system(size: 14))
                 .foregroundStyle(.secondary)
 
             Button {
                 Task { await model.resumeAutomaticSession() }
                 dismiss()
             } label: {
-                Text("Start my session on current window")
+                Text("Click to start my session")
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 3)
             }

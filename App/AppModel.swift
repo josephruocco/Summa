@@ -433,12 +433,14 @@ final class AppModel: ObservableObject {
         premiumTask?.cancel()
         overlay?.setPremiumLoading(true)
         premiumTask = Task { [weak self] in
-            let annotations = await ScreenAnnotator.annotate(
+            // Annotations stream in and render incrementally as the model
+            // produces them; setPremiumHighlights also clears the loading pill.
+            for await annotations in ScreenAnnotator.annotate(
                 tokens: tokens, overlaySize: overlaySize, bookContext: ctx
-            )
-            if Task.isCancelled { return }
-            // setPremiumHighlights also clears the loading pill.
-            self?.overlay?.setPremiumHighlights(annotations)
+            ) {
+                if Task.isCancelled { break }
+                self?.overlay?.setPremiumHighlights(annotations)
+            }
         }
     }
 

@@ -140,25 +140,94 @@ enum ScreenAnnotator {
 
     // MARK: - Public entry
 
-    static func annotate(tokens: [OCRToken], overlaySize: CGSize, bookContext: String?) async -> [ScreenAnnotation] {
-        let stream = readingOrderStream(tokens: tokens, overlaySize: overlaySize)
-        guard stream.count >= minWords else { return [] }
+    // Emits the annotations for the current screen, growing as they arrive.
+    // When a proxy is configured it streams (each annotation renders the instant
+    // the model finishes it); otherwise, and on a cache hit, it yields the whole
+    // set at once. The final yield is always the complete set.
+    static func annotate(tokens: [OCRToken], overlaySize: CGSize, bookContext: String?) -> AsyncStream<[ScreenAnnotation]> {
+        AsyncStream { continuation in
+            let producer = Task {
+                let stream = readingOrderStream(tokens: tokens, overlaySize: overlaySize)
+                guard stream.count >= minWords else {
+                    continuation.yield([]); continuation.finish(); return
+                }
+                let visibleText = stream.map(\.text).joined(separator: " ")
+                let cacheKey = normalize(visibleText).hashValue
 
-        let visibleText = stream.map(\.text).joined(separator: " ")
-        let cacheKey = normalize(visibleText).hashValue
+                if let cached = cache.get(cacheKey) {
+                    continuation.yield(cached.compactMap { mapToScreen($0, stream: stream) })
+                    continuation.finish(); return
+                }
 
-        let raw: [RawAnnotation]
-        if let cached = cache.get(cacheKey) {
-            raw = cached
-        } else {
-            guard let fetched = await requestAnnotations(visibleText: visibleText, bookContext: bookContext) else {
-                return []
+                // Streaming path (proxy configured).
+                if let base = proxyURL(), let token = accessToken() {
+                    var raw: [RawAnnotation] = []
+                    var mapped: [ScreenAnnotation] = []
+                    let ok = await streamViaProxy(base: base, token: token, visibleText: visibleText, bookContext: bookContext) { rawAnn in
+                        raw.append(rawAnn)
+                        if let m = mapToScreen(rawAnn, stream: stream) {
+                            mapped.append(m)
+                            continuation.yield(mapped)
+                        }
+                    }
+                    if ok {
+                        continuation.yield(mapped)
+                        if !raw.isEmpty { cache.put(cacheKey, raw) }
+                        continuation.finish(); return
+                    }
+                    // fall through to the one-shot path on stream failure
+                }
+
+                if let fetched = await requestAnnotations(visibleText: visibleText, bookContext: bookContext) {
+                    cache.put(cacheKey, fetched)
+                    continuation.yield(fetched.compactMap { mapToScreen($0, stream: stream) })
+                } else {
+                    continuation.yield([])
+                }
+                continuation.finish()
             }
-            cache.put(cacheKey, fetched)
-            raw = fetched
+            continuation.onTermination = { _ in producer.cancel() }
         }
+    }
 
-        return raw.compactMap { mapToScreen($0, stream: stream) }
+    // Streams NDJSON annotations from the proxy, calling `onAnnotation` for each
+    // as it arrives. Returns true if the request succeeded (even with zero
+    // annotations), false if it should fall back to the one-shot path.
+    private static func streamViaProxy(
+        base: String, token: String, visibleText: String, bookContext: String?,
+        onAnnotation: (RawAnnotation) -> Void
+    ) async -> Bool {
+        let trimmed = base.hasSuffix("/") ? String(base.dropLast()) : base
+        guard let url = URL(string: "\(trimmed)/annotate") else { return false }
+        var payload: [String: Any] = ["visibleText": visibleText]
+        if let bookContext, !bookContext.isEmpty { payload["bookContext"] = bookContext }
+        guard let body = try? JSONSerialization.data(withJSONObject: payload) else { return false }
+
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.timeoutInterval = 45
+        req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.setValue("1", forHTTPHeaderField: "X-Summa-Stream")
+        req.httpBody = body
+
+        do {
+            let (bytes, resp) = try await URLSession.shared.bytes(for: req)
+            guard (resp as? HTTPURLResponse)?.statusCode == 200 else { return false }
+            for try await line in bytes.lines {
+                if Task.isCancelled { break }
+                let trimmedLine = line.trimmingCharacters(in: .whitespaces)
+                guard !trimmedLine.isEmpty,
+                      let data = trimmedLine.data(using: .utf8),
+                      let ann = try? JSONDecoder().decode(RawAnnotation.self, from: data),
+                      !ann.anchor.isEmpty, !ann.note.isEmpty,
+                      AnnotationCategory(rawValue: ann.type) != nil else { continue }
+                onAnnotation(ann)
+            }
+            return true
+        } catch {
+            return false
+        }
     }
 
     // MARK: - Reading-order token stream

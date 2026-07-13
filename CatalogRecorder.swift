@@ -105,11 +105,11 @@ actor CatalogRecorder {
         rememberTokens(tokenStrings)
 
         for h in (vocab + refs) {
-            await ingestOne(highlight: h, tokenRects: tokenRects, tokenStrings: tokenStrings, overlaySize: overlaySize)
+            ingestOne(highlight: h, tokenRects: tokenRects, tokenStrings: tokenStrings, overlaySize: overlaySize)
         }
     }
 
-    private func ingestOne(highlight h: HighlightBox, tokenRects: [CGRect], tokenStrings: [String], overlaySize: CGSize) async {
+    private func ingestOne(highlight h: HighlightBox, tokenRects: [CGRect], tokenStrings: [String], overlaySize: CGSize) {
         let now = iso8601Now()
         let nrect = normRectQuantized(h.rect, overlaySize: overlaySize)
         let idx = nearestTokenIndex(to: h.rect, tokenRects: tokenRects)
@@ -131,10 +131,6 @@ actor CatalogRecorder {
             if existing.definition == nil && kind == .vocab {
                 existing.definition = Lookups.definition(for: h.text)
             }
-            if existing.wikiSummary == nil && kind == .reference {
-                let wiki = await Wikipedia.lookup(h.text, contextBefore: before, contextAfter: after)
-                existing.wikiSummary = wiki.extract
-            }
 
             if displayTextScore(h.text) > displayTextScore(existing.text) {
                 existing.text = h.text
@@ -143,13 +139,13 @@ actor CatalogRecorder {
             itemsByKey[key] = existing
         } else {
             var definition: String? = nil
-            var wikiSummary: String? = nil
+            // Reference summaries used to come from the legacy keyword-Wikipedia
+            // resolver. With premium annotations as the only source, reference
+            // highlights no longer flow into the recorder, so this stays nil.
+            let wikiSummary: String? = nil
 
             if kind == .vocab {
                 definition = Lookups.definition(for: h.text)
-            } else {
-                let wiki = await Wikipedia.lookup(h.text, contextBefore: before, contextAfter: after)
-                wikiSummary = wiki.extract
             }
 
             itemsByKey[key] = Item(

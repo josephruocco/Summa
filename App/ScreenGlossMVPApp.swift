@@ -18,7 +18,8 @@ struct ScreenGlossMVPApp: App {
         .menuBarExtraStyle(.window)
 
         Settings {
-            EmptyView()
+            SettingsView()
+                .environmentObject(model)
         }
     }
 }

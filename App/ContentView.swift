@@ -4,7 +4,7 @@ import AuthenticationServices
 
 struct ContentView: View {
     @EnvironmentObject var model: AppModel
-    @State private var hasTrainingData = TrainingDataStore.shared.hasData
+    @Environment(\.openSettings) private var openSettings
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -103,49 +103,6 @@ struct ContentView: View {
 
     private var controls: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Menu {
-                Toggle("Show Vocab Highlights", isOn: $model.showVocab)
-                Toggle("Show Reference Highlights", isOn: $model.showRefs)
-                Toggle("Premium AI Annotations", isOn: $model.premiumAnnotations)
-                Toggle("Show Annotation Debug", isOn: $model.showAnnotationDebug)
-            } label: {
-                Label("Highlight Options", systemImage: "slider.horizontal.3")
-                    .font(.system(size: 12))
-            }
-            .menuStyle(.borderlessButton)
-            .fixedSize()
-
-            Menu {
-                // Brief transparency note shown inline so users can see what
-                // Summa is collecting before choosing to reveal or clear it.
-                Text("Summa keeps a local log of which annotation you pick when multiple options are shown. Nothing is uploaded automatically.")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-
-                Divider()
-
-                Button {
-                    if let url = TrainingDataStore.shared.storageFileURL {
-                        NSWorkspace.shared.activateFileViewerSelecting([url])
-                    }
-                } label: {
-                    Label("Reveal Training Log", systemImage: "magnifyingglass")
-                }
-
-                Button(role: .destructive) {
-                    TrainingDataStore.shared.clearAll()
-                    hasTrainingData = false
-                } label: {
-                    Label("Clear Training Log", systemImage: "trash")
-                }
-                .disabled(!hasTrainingData)
-            } label: {
-                Label("Training Data", systemImage: "text.book.closed")
-                    .font(.system(size: 12))
-            }
-            .menuStyle(.borderlessButton)
-            .fixedSize()
-
             VStack(alignment: .leading, spacing: 6) {
                 Text("Annotation Layout")
                     .font(.system(size: 11, weight: .medium))
@@ -159,92 +116,19 @@ struct ContentView: View {
                 .pickerStyle(.segmented)
             }
 
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Premium AI Annotations")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(.secondary)
-
-                if let email = model.signedInEmail {
-                    HStack {
-                        Image(systemName: "checkmark.seal.fill").foregroundStyle(.green)
-                        Text("Signed in as \(email)").font(.system(size: 12))
-                        Spacer()
-                        Button("Sign Out") { model.signOut() }
-                            .font(.system(size: 11))
-                    }
-                } else {
-                    SignInWithAppleButton(.signIn,
-                        onRequest: { request in request.requestedScopes = [.email] },
-                        onCompletion: { model.handleAppleAuthorization($0) }
-                    )
-                    .signInWithAppleButtonStyle(.whiteOutline)
-                    .frame(height: 32)
-
-                    Text("or enter a beta access code")
-                        .font(.system(size: 10))
-                        .foregroundStyle(.secondary)
-
-                    SecureField("Beta access code", text: $model.accessCode)
-                        .textFieldStyle(.roundedBorder)
-                        .font(.system(size: 12))
-                }
-
-                TextField("Proxy URL (https://…)", text: $model.proxyURL)
-                    .textFieldStyle(.roundedBorder)
-                    .font(.system(size: 12))
-                    .textContentType(.URL)
-
-                Text("No API key needed — requests go through Summa's server, and your key is never stored on this Mac.")
-                    .font(.system(size: 10))
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                DisclosureGroup {
-                    SecureField("sk-ant-… (dev only)", text: $model.anthropicAPIKey)
-                        .textFieldStyle(.roundedBorder)
-                        .font(.system(size: 12))
-                    Text("Calls Anthropic directly. Used only when no proxy URL is set.")
-                        .font(.system(size: 10))
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                } label: {
-                    Text("Advanced: direct API key")
-                        .font(.system(size: 10))
-                        .foregroundStyle(.secondary)
-                }
+            Button {
+                NSApp.activate(ignoringOtherApps: true)
+                openSettings()
+            } label: {
+                Label("Open Settings", systemImage: "gearshape")
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
+            .buttonStyle(.bordered)
 
             Button {
                 Task { await model.syncToFrontmostWindow(startIfNeeded: true) }
             } label: {
                 Label("Retarget Current Window", systemImage: "scope")
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .buttonStyle(.bordered)
-
-            Button {
-                model.chooseExportFolder()
-            } label: {
-                Label(model.hasExportFolder ? "Change Export Folder" : "Choose Export Folder", systemImage: "folder")
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .buttonStyle(.bordered)
-
-            Button {
-                Task { await model.exportCatalog() }
-            } label: {
-                Label("Export Demo Catalog", systemImage: "square.and.arrow.up")
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .buttonStyle(.bordered)
-            .disabled(!model.sessionOn || !model.hasExportFolder)
-
-            Button {
-                if let url = URL(string: "https://summa-demo.josephruocco.net/feedback") {
-                    NSWorkspace.shared.open(url)
-                }
-            } label: {
-                Label("Send Feedback", systemImage: "envelope")
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
             .buttonStyle(.bordered)
@@ -278,5 +162,95 @@ struct ContentView: View {
             RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .fill(tint.opacity(0.10))
         )
+    }
+}
+
+// The Settings window (opened from the menu panel's "Open Settings" button).
+// Holds everything that used to clutter the menu: highlight toggles, premium
+// AI account/credentials, training data, export, and feedback.
+struct SettingsView: View {
+    @EnvironmentObject var model: AppModel
+    @State private var hasTrainingData = TrainingDataStore.shared.hasData
+
+    var body: some View {
+        Form {
+            Section("Highlights") {
+                Toggle("Show vocab highlights", isOn: $model.showVocab)
+                Toggle("Show reference highlights", isOn: $model.showRefs)
+                Toggle("Premium AI annotations", isOn: $model.premiumAnnotations)
+                Toggle("Show annotation debug", isOn: $model.showAnnotationDebug)
+            }
+
+            Section("Premium AI Account") {
+                if let email = model.signedInEmail {
+                    LabeledContent("Signed in") {
+                        HStack {
+                            Image(systemName: "checkmark.seal.fill").foregroundStyle(.green)
+                            Text(email)
+                            Button("Sign Out") { model.signOut() }
+                        }
+                    }
+                } else {
+                    SignInWithAppleButton(.signIn,
+                        onRequest: { request in request.requestedScopes = [.email] },
+                        onCompletion: { model.handleAppleAuthorization($0) }
+                    )
+                    .signInWithAppleButtonStyle(.whiteOutline)
+                    .frame(height: 32)
+
+                    SecureField("Beta access code", text: $model.accessCode)
+                }
+
+                TextField("Proxy URL (https://…)", text: $model.proxyURL)
+                    .textContentType(.URL)
+
+                Text("No API key needed — requests go through Summa's server, and your key is never stored on this Mac.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+
+                DisclosureGroup("Advanced: direct API key") {
+                    SecureField("sk-ant-… (dev only)", text: $model.anthropicAPIKey)
+                    Text("Calls Anthropic directly. Used only when no proxy URL is set.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            Section("Export") {
+                Button(model.hasExportFolder ? "Change Export Folder…" : "Choose Export Folder…") {
+                    model.chooseExportFolder()
+                }
+                Button("Export Demo Catalog") {
+                    Task { await model.exportCatalog() }
+                }
+                .disabled(!model.sessionOn || !model.hasExportFolder)
+            }
+
+            Section("Training Data") {
+                Text("Summa keeps a local log of which annotation you pick when multiple options are shown. Nothing is uploaded automatically.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                Button("Reveal Training Log") {
+                    if let url = TrainingDataStore.shared.storageFileURL {
+                        NSWorkspace.shared.activateFileViewerSelecting([url])
+                    }
+                }
+                Button("Clear Training Log", role: .destructive) {
+                    TrainingDataStore.shared.clearAll()
+                    hasTrainingData = false
+                }
+                .disabled(!hasTrainingData)
+            }
+
+            Section {
+                Button("Send Feedback") {
+                    if let url = URL(string: "https://summa-demo.josephruocco.net/feedback") {
+                        NSWorkspace.shared.open(url)
+                    }
+                }
+            }
+        }
+        .formStyle(.grouped)
+        .frame(width: 460, height: 600)
     }
 }

@@ -4,7 +4,9 @@ final class LookupCache {
     static let shared = LookupCache()
 
     // Bump this when scoring logic changes to automatically invalidate stale cached results.
-    private static let cacheVersion = 6
+    // v7: discards caches written by the legacy keyword-Wikipedia resolver, whose
+    // entries (e.g. "Lord" -> Lorde the singer) would otherwise still surface on hover.
+    private static let cacheVersion = 7
 
     private struct CacheStore: Codable {
         var version: Int = 0

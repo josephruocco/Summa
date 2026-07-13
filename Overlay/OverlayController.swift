@@ -321,11 +321,13 @@ final class OverlayController {
                 let ctxBefore = lastOCRTokenRects[start..<idx].map(\.text).joined(separator: " ")
                 let ctxAfter = lastOCRTokenRects[(idx + 1)..<end].map(\.text).joined(separator: " ")
 
-                let isCapitalized = token.text.first?.isUppercase ?? false
-                let kind: HighlightBox.Kind = isCapitalized ? .reference : .vocab
-
+                // Ad-hoc lookups are dictionary-only. Reference glosses come from
+                // the premium annotator (already surfaced as highlights above);
+                // there is no keyword resolver to look up an arbitrary capitalized
+                // word, so treating one as a reference would only surface a stale
+                // cached gloss. Words with no dictionary entry show nothing.
                 let adHoc = HighlightBox(
-                    text: token.text, rect: token.rect, kind: kind,
+                    text: token.text, rect: token.rect, kind: .vocab,
                     contextBefore: ctxBefore, contextAfter: ctxAfter
                 )
 
@@ -544,7 +546,10 @@ final class OverlayController {
                 return .dictionary(term: text, definition: cached)
             }
 
-            let def = Lookups.definition(for: text) ?? "No dictionary entry found."
+            // No entry -> no tooltip. Real vocab highlights always have a
+            // definition (the engine only picks defined words); this guard
+            // matters for ad-hoc hovers over arbitrary words.
+            guard let def = Lookups.definition(for: text) else { return nil }
             LookupCache.shared.setDictionary(key, def)
             return .dictionary(term: text, definition: def)
         }

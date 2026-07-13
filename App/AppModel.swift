@@ -342,18 +342,17 @@ final class AppModel: ObservableObject {
         let tokens = await OCR.ocrTokens(from: frame.cgImage, cropProfile: cropProfile)
 
         let overlaySize = overlay?.currentContentSize ?? frame.size
-        // In premium mode the LLM annotator is the sole source of reference
-        // highlights, so suppress the legacy keyword-Wikipedia refs entirely
-        // (they're what produced junk like "Hanoverian" -> a dog breed and
-        // "Lord" -> Lorde the singer). Only suppress when premium can actually
-        // run -- if the toggle is on but no API key is set, keep legacy refs so
-        // the app isn't left with no references at all. Vocab is unaffected.
-        let premiumActive = premiumAnnotations && ScreenAnnotator.isConfigured
+        // When premium is on, the LLM annotator is the ONLY source of reference
+        // highlights -- the legacy keyword-Wikipedia matcher is suppressed
+        // entirely (it's what produced junk like "Hanoverian" -> a dog breed and
+        // "Lord" -> Lorde the singer). Gated on the toggle alone, not on whether
+        // a key/proxy is configured, so there's never a window where the naive
+        // matcher leaks through. Vocab dictionary highlights are unaffected.
         let rawResult = engine.computeHighlights(
             tokens: tokens,
             windowSize: overlaySize,
             showVocab: showVocab,
-            showRefs: showRefs && !premiumActive
+            showRefs: showRefs && !premiumAnnotations
         )
         let result = (
             vocab: enrichContexts(rawResult.vocab, tokens: tokens, overlaySize: overlaySize),

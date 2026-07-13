@@ -182,6 +182,12 @@ struct SettingsView: View {
             }
 
             Section("Premium AI Account") {
+                // Sign in with Apple is built and ready (see AppModel /
+                // SignInWithAppleButton) but hidden until the "Sign in with
+                // Apple" capability is enabled on the App ID and the entitlement
+                // is re-added to the build. Until then, the beta access code is
+                // the only sign-in. To re-enable, restore the SignInWithAppleButton
+                // branch here.
                 if let email = model.signedInEmail {
                     LabeledContent("Signed in") {
                         HStack {
@@ -191,13 +197,6 @@ struct SettingsView: View {
                         }
                     }
                 } else {
-                    SignInWithAppleButton(.signIn,
-                        onRequest: { request in request.requestedScopes = [.email] },
-                        onCompletion: { model.handleAppleAuthorization($0) }
-                    )
-                    .signInWithAppleButtonStyle(.whiteOutline)
-                    .frame(height: 32)
-
                     SecureField("Beta access code", text: $model.accessCode)
                 }
 

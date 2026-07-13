@@ -6,5 +6,13 @@
 	<true/>
 	<key>NSScreenCaptureUsageDescription</key>
 	<string>Needed to recognize text in your reading window and show vocabulary and context.</string>
+	<!-- Allows cleartext HTTP to localhost/.local for testing a proxy running on
+	     this machine. Does NOT permit arbitrary cleartext internet loads, so
+	     production traffic to the HTTPS proxy is unaffected. -->
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
 </dict>
 </plist>

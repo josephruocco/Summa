@@ -1,9 +1,10 @@
 import SwiftUI
 import AppKit
+import AuthenticationServices
 
 struct ContentView: View {
     @EnvironmentObject var model: AppModel
-    @State private var hasTrainingData = TrainingDataStore.shared.hasData
+    @Environment(\.openSettings) private var openSettings
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -102,48 +103,6 @@ struct ContentView: View {
 
     private var controls: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Menu {
-                Toggle("Show Vocab Highlights", isOn: $model.showVocab)
-                Toggle("Show Reference Highlights", isOn: $model.showRefs)
-                Toggle("Show Annotation Debug", isOn: $model.showAnnotationDebug)
-            } label: {
-                Label("Highlight Options", systemImage: "slider.horizontal.3")
-                    .font(.system(size: 12))
-            }
-            .menuStyle(.borderlessButton)
-            .fixedSize()
-
-            Menu {
-                // Brief transparency note shown inline so users can see what
-                // Summa is collecting before choosing to reveal or clear it.
-                Text("Summa keeps a local log of which annotation you pick when multiple options are shown. Nothing is uploaded automatically.")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-
-                Divider()
-
-                Button {
-                    if let url = TrainingDataStore.shared.storageFileURL {
-                        NSWorkspace.shared.activateFileViewerSelecting([url])
-                    }
-                } label: {
-                    Label("Reveal Training Log", systemImage: "magnifyingglass")
-                }
-
-                Button(role: .destructive) {
-                    TrainingDataStore.shared.clearAll()
-                    hasTrainingData = false
-                } label: {
-                    Label("Clear Training Log", systemImage: "trash")
-                }
-                .disabled(!hasTrainingData)
-            } label: {
-                Label("Training Data", systemImage: "text.book.closed")
-                    .font(.system(size: 12))
-            }
-            .menuStyle(.borderlessButton)
-            .fixedSize()
-
             VStack(alignment: .leading, spacing: 6) {
                 Text("Annotation Layout")
                     .font(.system(size: 11, weight: .medium))
@@ -158,36 +117,18 @@ struct ContentView: View {
             }
 
             Button {
+                NSApp.activate(ignoringOtherApps: true)
+                openSettings()
+            } label: {
+                Label("Open Settings", systemImage: "gearshape")
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .buttonStyle(.bordered)
+
+            Button {
                 Task { await model.syncToFrontmostWindow(startIfNeeded: true) }
             } label: {
                 Label("Retarget Current Window", systemImage: "scope")
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .buttonStyle(.bordered)
-
-            Button {
-                model.chooseExportFolder()
-            } label: {
-                Label(model.hasExportFolder ? "Change Export Folder" : "Choose Export Folder", systemImage: "folder")
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .buttonStyle(.bordered)
-
-            Button {
-                Task { await model.exportCatalog() }
-            } label: {
-                Label("Export Demo Catalog", systemImage: "square.and.arrow.up")
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .buttonStyle(.bordered)
-            .disabled(!model.sessionOn || !model.hasExportFolder)
-
-            Button {
-                if let url = URL(string: "https://summa-demo.josephruocco.net/feedback") {
-                    NSWorkspace.shared.open(url)
-                }
-            } label: {
-                Label("Send Feedback", systemImage: "envelope")
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
             .buttonStyle(.bordered)
@@ -221,5 +162,207 @@ struct ContentView: View {
             RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .fill(tint.opacity(0.10))
         )
+    }
+}
+
+// The Settings window (opened from the menu panel's "Open Settings" button).
+// Holds everything that used to clutter the menu: highlight toggles, premium
+// AI account/credentials, training data, export, and feedback.
+struct SettingsView: View {
+    @EnvironmentObject var model: AppModel
+    @State private var hasTrainingData = TrainingDataStore.shared.hasData
+
+    var body: some View {
+        Form {
+            Section("Highlights") {
+                Toggle("Show vocab highlights", isOn: $model.showVocab)
+                Toggle("Show reference highlights", isOn: $model.showRefs)
+                Toggle("Premium AI annotations", isOn: $model.premiumAnnotations)
+                Toggle("Show annotation debug", isOn: $model.showAnnotationDebug)
+            }
+
+            Section("Premium AI Account") {
+                // Sign in with Apple button is hidden: the native flow can't be
+                // signed for Developer ID distribution (the provisioning profile
+                // won't carry the applesignin entitlement). The code is intact
+                // in AppModel for a future Mac App Store or web-OAuth path.
+                if let email = model.signedInEmail {
+                    LabeledContent("Signed in") {
+                        HStack {
+                            Image(systemName: "checkmark.seal.fill").foregroundStyle(.green)
+                            Text(email)
+                            Button("Sign Out") { model.signOut() }
+                        }
+                    }
+                } else {
+                    SecureField("Beta access code", text: $model.accessCode)
+                }
+
+                TextField("Proxy URL (https://…)", text: $model.proxyURL)
+                    .textContentType(.URL)
+
+                Text("No API key needed — requests go through Summa's server, and your key is never stored on this Mac.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+
+                DisclosureGroup("Advanced: direct API key") {
+                    SecureField("sk-ant-… (dev only)", text: $model.anthropicAPIKey)
+                    Text("Calls Anthropic directly. Used only when no proxy URL is set.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            Section("Export") {
+                Button(model.hasExportFolder ? "Change Export Folder…" : "Choose Export Folder…") {
+                    model.chooseExportFolder()
+                }
+                Button("Export Demo Catalog") {
+                    Task { await model.exportCatalog() }
+                }
+                .disabled(!model.sessionOn || !model.hasExportFolder)
+            }
+
+            Section("Training Data") {
+                Text("Summa keeps a local log of which annotation you pick when multiple options are shown. Nothing is uploaded automatically.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                Button("Reveal Training Log") {
+                    if let url = TrainingDataStore.shared.storageFileURL {
+                        NSWorkspace.shared.activateFileViewerSelecting([url])
+                    }
+                }
+                Button("Clear Training Log", role: .destructive) {
+                    TrainingDataStore.shared.clearAll()
+                    hasTrainingData = false
+                }
+                .disabled(!hasTrainingData)
+            }
+
+            Section {
+                Button("Send Feedback") {
+                    if let url = URL(string: "https://summa-demo.josephruocco.net/feedback") {
+                        NSWorkspace.shared.open(url)
+                    }
+                }
+            }
+        }
+        .formStyle(.grouped)
+        .frame(width: 460, height: 600)
+    }
+}
+
+// Welcome window shown on launch: the Summa logo and a single button that
+// starts a session on the current window (the same as flipping the menu-bar
+// toggle), then closes itself.
+struct WelcomeView: View {
+    @EnvironmentObject var model: AppModel
+    var onDismiss: () -> Void = {}
+
+    private var appVersion: String {
+        (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "1.0"
+    }
+    // Where the "What's New" link points. Update if you host release notes
+    // elsewhere.
+    private let whatsNewURL = URL(string: "https://github.com/josephruocco/Summa/releases/latest")!
+
+    // Sampled from the logo: #b21320.
+    private let summaRed = Color(red: 0.698, green: 0.075, blue: 0.125)
+    private let summaRedDark = Color(red: 0.57, green: 0.055, blue: 0.10)
+    private let ink = Color(red: 0.11, green: 0.11, blue: 0.12)
+
+    // Load the logo directly from the app bundle (a loose resource), which is
+    // more reliable than the asset catalog for a single image.
+    private var logoImage: NSImage? {
+        if let url = Bundle.main.url(forResource: "summa-logo", withExtension: "png"),
+           let img = NSImage(contentsOf: url) { return img }
+        return NSImage(named: "SummaLogo")
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            if let logo = logoImage {
+                Image(nsImage: logo)
+                    .resizable()
+                    .interpolation(.high)
+                    .aspectRatio(contentMode: .fit)
+                    .frame(width: 300, height: 100)
+                    .padding(.top, 6)
+            } else {
+                HStack(spacing: 0) {
+                    Text("S")
+                        .font(.system(size: 46, weight: .bold, design: .serif))
+                        .foregroundStyle(.white)
+                        .frame(width: 64, height: 64)
+                        .background(RoundedRectangle(cornerRadius: 5).fill(summaRed))
+                        .overlay(RoundedRectangle(cornerRadius: 5).inset(by: 4).stroke(.white, lineWidth: 1.5))
+                    Text("UMMA")
+                        .font(.system(size: 40, weight: .semibold, design: .serif))
+                        .foregroundStyle(ink)
+                        .padding(.leading, 8)
+                }
+                .padding(.top, 6)
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Thank you for using Summa")
+                    .font(.system(size: 20, weight: .semibold, design: .serif))
+                    .foregroundStyle(ink)
+                Text("The annotated edition of whatever you're reading.")
+                    .font(.system(size: 14, design: .serif))
+                    .italic()
+                    .foregroundStyle(ink.opacity(0.6))
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            Button {
+                Task { await model.resumeAutomaticSession() }
+                onDismiss()
+            } label: {
+                Text("Click to start")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 26)
+                    .padding(.vertical, 9)
+                    .background(
+                        LinearGradient(
+                            colors: [summaRed, summaRedDark],
+                            startPoint: .top, endPoint: .bottom
+                        )
+                    )
+                    .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 9, style: .continuous)
+                            .stroke(.white.opacity(0.25), lineWidth: 1)
+                    )
+                    .shadow(color: summaRed.opacity(0.3), radius: 7, y: 3)
+            }
+            .buttonStyle(.plain)
+            .padding(.top, 2)
+            .keyboardShortcut(.defaultAction)
+
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 6) {
+                    Text("Version \(appVersion)")
+                    Text("·")
+                    Link("What's New", destination: whatsNewURL)
+                        .tint(summaRed)
+                }
+                .font(.system(size: 11))
+                Text("© 2026 Joseph Ruocco. All rights reserved.")
+                    .font(.system(size: 10))
+            }
+            .foregroundStyle(ink.opacity(0.45))
+            .padding(.top, 2)
+        }
+        .padding(.horizontal, 44)
+        .padding(.top, 30)
+        .padding(.bottom, 30)
+        .frame(width: 460)
+        .background(Color.white)
+        .preferredColorScheme(.light)
+        .onAppear { NSApp.activate(ignoringOtherApps: true) }
     }
 }

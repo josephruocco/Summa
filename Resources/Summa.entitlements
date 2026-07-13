@@ -16,5 +16,14 @@
 	  no disable-library-validation. If we ever need one, add it here with a
 	  comment explaining why.
 	-->
+
+	<!-- Sign in with Apple is intentionally NOT enabled. The App ID
+	     (com.josephruocco.ScreenGlossMVP) has the capability, the code is written, and a
+	     Developer ID profile exists -- but Developer ID (outside-the-Mac-App-
+	     Store) provisioning profiles do not carry the com.apple.developer.applesignin
+	     entitlement, so the native flow can't be signed for this distribution
+	     method. Revisit if/when distributing via the Mac App Store, or switch to
+	     a web-based (ASWebAuthenticationSession) Apple OAuth flow. Until then the
+	     beta access code is the sign-in. -->
 </dict>
 </plist>

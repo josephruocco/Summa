@@ -2,7 +2,9 @@ import Foundation
 import ScreenCaptureKit
 import AppKit
 import Combine
+import CoreGraphics
 import UniformTypeIdentifiers
+import AuthenticationServices
 
 @MainActor
 final class AppModel: ObservableObject {
@@ -10,6 +12,7 @@ final class AppModel: ObservableObject {
     private static let exportFolderBookmarkKey = "summa.exportFolderBookmark"
     private static let overlayLayoutKey = "summa.overlayLayout"
     private static let annotationDebugKey = "summa.annotationDebug"
+    private static let premiumKey = "summa.premiumAnnotations"
 
     @Published var windows: [SCWindow] = []
     @Published var selectedWindowID: UInt32? = nil
@@ -32,6 +35,27 @@ final class AppModel: ObservableObject {
             overlay?.setDebugMode(showAnnotationDebug)
         }
     }
+    @Published var premiumAnnotations: Bool = false {
+        didSet {
+            UserDefaults.standard.set(premiumAnnotations, forKey: Self.premiumKey)
+            if !premiumAnnotations { overlay?.setPremiumHighlights([]) }
+        }
+    }
+    // Premium annotation credentials, bound to settings fields and persisted
+    // where ScreenAnnotator reads them. Testers set an access code (and, until
+    // a default proxy URL is baked in, the proxy URL); the raw API key is a dev
+    // fallback used only when no proxy is configured.
+    @Published var accessCode: String = "" {
+        didSet { UserDefaults.standard.set(accessCode, forKey: ScreenAnnotator.accessTokenDefaultsKey) }
+    }
+    @Published var proxyURL: String = "" {
+        didSet { UserDefaults.standard.set(proxyURL, forKey: ScreenAnnotator.proxyURLDefaultsKey) }
+    }
+    @Published var anthropicAPIKey: String = "" {
+        didSet { UserDefaults.standard.set(anthropicAPIKey, forKey: ScreenAnnotator.apiKeyDefaultsKey) }
+    }
+    // nil when not signed in with Apple; the email the proxy authorized otherwise.
+    @Published var signedInEmail: String? = nil
 
     @Published var lastHighlightCounts: (vocab: Int, ref: Int) = (0, 0)
     @Published var hasExportFolder: Bool = false
@@ -49,12 +73,21 @@ final class AppModel: ObservableObject {
     private var lastVocab: [HighlightBox] = []
     private var lastRefs: [HighlightBox] = []
     private var lastSidebarAnchorX: CGFloat = 0
+    private var premiumTask: Task<Void, Never>?
+    private var lastPremiumTextHash: Int?
+    private var requestedScreenAccess = false
+    private var screenAccessDenied = false
 
     private init() {
         NSApp.setActivationPolicy(.accessory)
         hasExportFolder = loadExportFolderURL() != nil
         overlayLayout = loadOverlayLayout()
         showAnnotationDebug = UserDefaults.standard.bool(forKey: Self.annotationDebugKey)
+        premiumAnnotations = UserDefaults.standard.bool(forKey: Self.premiumKey)
+        accessCode = UserDefaults.standard.string(forKey: ScreenAnnotator.accessTokenDefaultsKey) ?? ""
+        proxyURL = UserDefaults.standard.string(forKey: ScreenAnnotator.proxyURLDefaultsKey) ?? ""
+        anthropicAPIKey = UserDefaults.standard.string(forKey: ScreenAnnotator.apiKeyDefaultsKey) ?? ""
+        signedInEmail = UserDefaults.standard.string(forKey: ScreenAnnotator.signedInEmailDefaultsKey)
 
         activationObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didActivateApplicationNotification,
@@ -95,7 +128,34 @@ final class AppModel: ObservableObject {
         return "\(app) — \(cleanTitle)"
     }
 
+    private func requestScreenAccessOnce() {
+        if !requestedScreenAccess {
+            requestedScreenAccess = true
+            _ = CGRequestScreenCaptureAccess()
+        }
+        if sessionOn { sessionOn = false }
+        status = "Grant Summa access under System Settings ▸ Privacy & Security ▸ Screen Recording, then reopen Summa."
+    }
+
+    // Gate for every ScreenCaptureKit entry point, so a missing permission never
+    // becomes a loop of prompts (that repeated re-request on each app activation
+    // was the bug). CGPreflightScreenCaptureAccess alone isn't trustworthy: after
+    // a permission reset / bundle-id change it can report a stale "granted",
+    // letting the real capture call prompt anyway. So we ALSO latch on the
+    // actual capture failure (screenAccessDenied) and stop trying until the app
+    // is relaunched -- Screen Recording grants require a relaunch regardless.
+    private func ensureScreenPermission() -> Bool {
+        if screenAccessDenied {
+            requestScreenAccessOnce()
+            return false
+        }
+        if CGPreflightScreenCaptureAccess() { return true }
+        requestScreenAccessOnce()
+        return false
+    }
+
     func refreshWindows() async {
+        guard ensureScreenPermission() else { return }
         do {
             let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
             self.windows = content.windows
@@ -103,7 +163,11 @@ final class AppModel: ObservableObject {
                 .sorted { ($0.owningApplication?.applicationName ?? "") < ($1.owningApplication?.applicationName ?? "") }
             status = "Found \(windows.count) windows."
         } catch {
-            status = "Failed to list windows: \(error.localizedDescription)"
+            // A throw here almost always means Screen Recording is denied even
+            // if preflight lied. Latch it so we stop re-calling (and re-prompting)
+            // until the app is relaunched.
+            screenAccessDenied = true
+            requestScreenAccessOnce()
         }
     }
 
@@ -118,6 +182,7 @@ final class AppModel: ObservableObject {
     }
 
     func syncToFrontmostWindow(startIfNeeded: Bool) async {
+        guard ensureScreenPermission() else { return }
         await refreshWindows()
 
         guard let frontmostID = WindowBounds.frontmostWindowID() else {
@@ -150,6 +215,8 @@ final class AppModel: ObservableObject {
     func stopSession() {
         capture.stop()
         stopScrollMonitor()
+        premiumTask?.cancel()
+        lastPremiumTextHash = nil
         overlay?.clear()
         currentCapturedWindowID = nil
         sessionOn = false
@@ -213,6 +280,48 @@ final class AppModel: ObservableObject {
         }
     }
 
+    // MARK: - Sign in with Apple
+
+    // Called from the SignInWithAppleButton completion. On success we hand
+    // Apple's identity token to the proxy, which verifies it, checks the
+    // allowlist, and returns a Summa session token we store and reuse.
+    func handleAppleAuthorization(_ result: Result<ASAuthorization, Error>) {
+        switch result {
+        case .failure(let error):
+            status = "Sign in failed: \(error.localizedDescription)"
+        case .success(let auth):
+            guard let credential = auth.credential as? ASAuthorizationAppleIDCredential,
+                  let tokenData = credential.identityToken,
+                  let identityToken = String(data: tokenData, encoding: .utf8) else {
+                status = "Sign in returned no identity token."
+                return
+            }
+            Task { await exchangeAppleToken(identityToken) }
+        }
+    }
+
+    private func exchangeAppleToken(_ identityToken: String) async {
+        guard let base = ScreenAnnotator.proxyURL() else {
+            status = "Set the proxy URL before signing in."
+            return
+        }
+        guard let (sessionToken, email) = await ScreenAnnotator.exchangeAppleToken(identityToken, proxyBase: base) else {
+            status = "Sign in was rejected (is your email on the allowlist?)."
+            return
+        }
+        UserDefaults.standard.set(sessionToken, forKey: ScreenAnnotator.sessionTokenDefaultsKey)
+        UserDefaults.standard.set(email, forKey: ScreenAnnotator.signedInEmailDefaultsKey)
+        signedInEmail = email
+        status = "Signed in as \(email)."
+    }
+
+    func signOut() {
+        UserDefaults.standard.removeObject(forKey: ScreenAnnotator.sessionTokenDefaultsKey)
+        UserDefaults.standard.removeObject(forKey: ScreenAnnotator.signedInEmailDefaultsKey)
+        signedInEmail = nil
+        status = "Signed out."
+    }
+
     private func startSession(for win: SCWindow) async {
         let id = win.windowID
 
@@ -268,11 +377,17 @@ final class AppModel: ObservableObject {
         let tokens = await OCR.ocrTokens(from: frame.cgImage, cropProfile: cropProfile)
 
         let overlaySize = overlay?.currentContentSize ?? frame.size
+        // When premium is on, the LLM annotator is the ONLY source of reference
+        // highlights -- the legacy keyword-Wikipedia matcher is suppressed
+        // entirely (it's what produced junk like "Hanoverian" -> a dog breed and
+        // "Lord" -> Lorde the singer). Gated on the toggle alone, not on whether
+        // a key/proxy is configured, so there's never a window where the naive
+        // matcher leaks through. Vocab dictionary highlights are unaffected.
         let rawResult = engine.computeHighlights(
             tokens: tokens,
             windowSize: overlaySize,
             showVocab: showVocab,
-            showRefs: showRefs
+            showRefs: showRefs && !premiumAnnotations
         )
         let result = (
             vocab: enrichContexts(rawResult.vocab, tokens: tokens, overlaySize: overlaySize),
@@ -287,6 +402,8 @@ final class AppModel: ObservableObject {
         overlay?.setHighlights(vocab: result.vocab, refs: result.refs, sidebarAnchorX: sidebarAnchorX)
         overlay?.setOCRTokens(tokens, overlaySize: overlaySize)
 
+        runPremiumAnnotationIfEnabled(tokens: tokens, overlaySize: overlaySize)
+
         Task {
             await self.recorder.ingest(
                 vocab: result.vocab,
@@ -299,6 +416,34 @@ final class AppModel: ObservableObject {
         status = "Session running on \(currentWindowLabel)."
     }
 
+    // Kicks off a background premium-annotation pass for the current screen.
+    // Cheap-gated: only when enabled and a key is present, and skipped when the
+    // visible text is unchanged from the last pass so we don't re-map/re-render
+    // (and don't re-bill) on cosmetic frame changes like a blinking cursor.
+    // ScreenAnnotator caches LLM responses by screen text, so scrolling back to
+    // an already-read screen is free.
+    private func runPremiumAnnotationIfEnabled(tokens: [OCRToken], overlaySize: CGSize) {
+        guard premiumAnnotations, ScreenAnnotator.isConfigured else { return }
+
+        let textHash = tokens.map(\.text).joined(separator: " ").hashValue
+        if textHash == lastPremiumTextHash { return }
+        lastPremiumTextHash = textHash
+
+        let ctx = currentWindowLabel.isEmpty ? nil : currentWindowLabel
+        premiumTask?.cancel()
+        overlay?.setPremiumLoading(true)
+        premiumTask = Task { [weak self] in
+            // Annotations stream in and render incrementally as the model
+            // produces them; setPremiumHighlights also clears the loading pill.
+            for await annotations in ScreenAnnotator.annotate(
+                tokens: tokens, overlaySize: overlaySize, bookContext: ctx
+            ) {
+                if Task.isCancelled { break }
+                self?.overlay?.setPremiumHighlights(annotations)
+            }
+        }
+    }
+
     private func startScrollMonitor() {
         guard scrollMonitor == nil else { return }
 
@@ -307,6 +452,8 @@ final class AppModel: ObservableObject {
             Task { @MainActor in
                 self.isScrolling = active
                 if active {
+                    self.premiumTask?.cancel()
+                    self.lastPremiumTextHash = nil
                     self.overlay?.clear()
                     self.status = "Scrolling…"
                 } else {

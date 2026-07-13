@@ -1,0 +1,432 @@
+import Foundation
+import CoreGraphics
+
+// MARK: - Screen-passage premium annotator (live app)
+//
+// The CLI premium pipeline (GutenbergTest/PremiumAnnotator) works on clean
+// book text with full-chapter context and character-offset anchors. The live
+// app has none of that: it sees only the OCR'd contents of whatever is
+// currently on screen, and every annotation must resolve to a screen
+// rectangle to be drawn.
+//
+// This is the app-shaped version: reconstruct the visible text from OCR
+// tokens, make ONE viewport-scoped LLM call (no full-chapter context, no
+// callbacks to unseen text, no two-pass critique -- latency has to stay
+// livable while someone reads), then map each returned anchor back onto the
+// OCR token rectangles it covers. Results are cached by a hash of the
+// visible text so scrolling back to a screen you've already read is free.
+
+struct ScreenAnnotation: Sendable {
+    let surface: String   // the actual OCR text the anchor matched, for display
+    let type: String      // allusion | context | philology | interpretation
+    let note: String
+    let rect: CGRect      // overlay-local, top-left origin
+}
+
+private struct RawAnnotation: Codable {
+    let anchor: String
+    let type: String
+    let note: String
+}
+
+enum ScreenAnnotator {
+
+    // Feature settings, stored in UserDefaults so they survive launches and a
+    // shipped build works without a dev .env.
+    //
+    // Two ways to reach the model:
+    //   1. Proxy (production): the app POSTs visible text + an access code to
+    //      the Summa proxy, which holds the Anthropic key server-side. This is
+    //      what testers use -- no key ever lives on their machine.
+    //   2. Direct (dev only): a raw Anthropic key in apiKeyDefaultsKey (or the
+    //      ANTHROPIC_API_KEY env var) calls Anthropic straight from the app.
+    // If a proxy URL is set, it wins.
+    static let proxyURLDefaultsKey    = "summa.proxyURL"
+    static let accessTokenDefaultsKey = "summa.accessToken"     // manual beta code
+    static let sessionTokenDefaultsKey = "summa.sessionToken"   // issued after Sign in with Apple
+    static let signedInEmailDefaultsKey = "summa.signedInEmail"
+    static let apiKeyDefaultsKey      = "summa.anthropicAPIKey"
+    static let modelDefaultsKey       = "summa.annotationModel"
+    static let defaultModel = "claude-sonnet-4-6"
+
+    // Baked-in default proxy URL: the deployed Summa Cloudflare Worker. Testers
+    // only need to paste an access code, not a URL. A value saved in settings
+    // overrides this (e.g. for local dev against wrangler dev).
+    static let defaultProxyURL = "https://summa-proxy.ruoccoj19.workers.dev"
+
+    private static func trimmedDefault(_ key: String) -> String? {
+        guard let v = UserDefaults.standard.string(forKey: key)?
+            .trimmingCharacters(in: .whitespacesAndNewlines), !v.isEmpty else { return nil }
+        return v
+    }
+
+    static func proxyURL() -> String? {
+        trimmedDefault(proxyURLDefaultsKey) ?? (defaultProxyURL.isEmpty ? nil : defaultProxyURL)
+    }
+    // The bearer sent to the proxy: a Sign in with Apple session token if
+    // present, otherwise a manually-entered beta access code.
+    static func accessToken() -> String? {
+        trimmedDefault(sessionTokenDefaultsKey) ?? trimmedDefault(accessTokenDefaultsKey)
+    }
+
+    // Exchange Apple's identity token for a Summa session token via the proxy's
+    // /session endpoint. Returns nil if the proxy rejects it (e.g. the email is
+    // not on the allowlist).
+    static func exchangeAppleToken(_ identityToken: String, proxyBase: String) async -> (sessionToken: String, email: String)? {
+        let trimmed = proxyBase.hasSuffix("/") ? String(proxyBase.dropLast()) : proxyBase
+        guard let url = URL(string: "\(trimmed)/session"),
+              let body = try? JSONSerialization.data(withJSONObject: ["appleIdentityToken": identityToken]) else { return nil }
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.timeoutInterval = 20
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = body
+        guard let (data, resp) = try? await URLSession.shared.data(for: req),
+              (resp as? HTTPURLResponse)?.statusCode == 200,
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let token = json["sessionToken"] as? String,
+              let email = json["email"] as? String else { return nil }
+        return (token, email)
+    }
+
+    static func apiKey() -> String? {
+        if let k = trimmedDefault(apiKeyDefaultsKey) { return k }
+        // Dev fallback only: set when launched from a shell that exported it.
+        if let env = ProcessInfo.processInfo.environment["ANTHROPIC_API_KEY"], !env.isEmpty {
+            return env
+        }
+        return nil
+    }
+
+    // True when premium annotations can actually run: either a proxy URL plus
+    // an access code, or a raw dev key.
+    static var isConfigured: Bool {
+        (proxyURL() != nil && accessToken() != nil) || apiKey() != nil
+    }
+
+    private static var model: String {
+        UserDefaults.standard.string(forKey: modelDefaultsKey) ?? defaultModel
+    }
+
+    // Don't spend a call on a nearly-empty screen (menus, chrome, a few stray
+    // OCR words). A real paragraph of prose is well above this.
+    private static let minWords = 20
+
+    // MARK: - Response cache (keyed by normalized visible text)
+
+    private final class Cache: @unchecked Sendable {
+        private var store: [Int: [RawAnnotation]] = [:]
+        private var order: [Int] = []
+        private let lock = NSLock()
+        private let cap = 40
+
+        func get(_ key: Int) -> [RawAnnotation]? {
+            lock.lock(); defer { lock.unlock() }
+            return store[key]
+        }
+        func put(_ key: Int, _ value: [RawAnnotation]) {
+            lock.lock(); defer { lock.unlock() }
+            if store[key] == nil {
+                order.append(key)
+                if order.count > cap, let evict = order.first {
+                    order.removeFirst()
+                    store[evict] = nil
+                }
+            }
+            store[key] = value
+        }
+    }
+    private static let cache = Cache()
+
+    // MARK: - Public entry
+
+    // Emits the annotations for the current screen, growing as they arrive.
+    // When a proxy is configured it streams (each annotation renders the instant
+    // the model finishes it); otherwise, and on a cache hit, it yields the whole
+    // set at once. The final yield is always the complete set.
+    static func annotate(tokens: [OCRToken], overlaySize: CGSize, bookContext: String?) -> AsyncStream<[ScreenAnnotation]> {
+        AsyncStream { continuation in
+            let producer = Task {
+                let stream = readingOrderStream(tokens: tokens, overlaySize: overlaySize)
+                guard stream.count >= minWords else {
+                    continuation.yield([]); continuation.finish(); return
+                }
+                let visibleText = stream.map(\.text).joined(separator: " ")
+                let cacheKey = normalize(visibleText).hashValue
+
+                if let cached = cache.get(cacheKey) {
+                    continuation.yield(cached.compactMap { mapToScreen($0, stream: stream) })
+                    continuation.finish(); return
+                }
+
+                // Streaming path (proxy configured).
+                if let base = proxyURL(), let token = accessToken() {
+                    var raw: [RawAnnotation] = []
+                    var mapped: [ScreenAnnotation] = []
+                    let ok = await streamViaProxy(base: base, token: token, visibleText: visibleText, bookContext: bookContext) { rawAnn in
+                        raw.append(rawAnn)
+                        if let m = mapToScreen(rawAnn, stream: stream) {
+                            mapped.append(m)
+                            continuation.yield(mapped)
+                        }
+                    }
+                    if ok {
+                        continuation.yield(mapped)
+                        if !raw.isEmpty { cache.put(cacheKey, raw) }
+                        continuation.finish(); return
+                    }
+                    // fall through to the one-shot path on stream failure
+                }
+
+                if let fetched = await requestAnnotations(visibleText: visibleText, bookContext: bookContext) {
+                    cache.put(cacheKey, fetched)
+                    continuation.yield(fetched.compactMap { mapToScreen($0, stream: stream) })
+                } else {
+                    continuation.yield([])
+                }
+                continuation.finish()
+            }
+            continuation.onTermination = { _ in producer.cancel() }
+        }
+    }
+
+    // Streams NDJSON annotations from the proxy, calling `onAnnotation` for each
+    // as it arrives. Returns true if the request succeeded (even with zero
+    // annotations), false if it should fall back to the one-shot path.
+    private static func streamViaProxy(
+        base: String, token: String, visibleText: String, bookContext: String?,
+        onAnnotation: (RawAnnotation) -> Void
+    ) async -> Bool {
+        let trimmed = base.hasSuffix("/") ? String(base.dropLast()) : base
+        guard let url = URL(string: "\(trimmed)/annotate") else { return false }
+        var payload: [String: Any] = ["visibleText": visibleText]
+        if let bookContext, !bookContext.isEmpty { payload["bookContext"] = bookContext }
+        guard let body = try? JSONSerialization.data(withJSONObject: payload) else { return false }
+
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.timeoutInterval = 45
+        req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.setValue("1", forHTTPHeaderField: "X-Summa-Stream")
+        req.httpBody = body
+
+        do {
+            let (bytes, resp) = try await URLSession.shared.bytes(for: req)
+            guard (resp as? HTTPURLResponse)?.statusCode == 200 else { return false }
+            for try await line in bytes.lines {
+                if Task.isCancelled { break }
+                let trimmedLine = line.trimmingCharacters(in: .whitespaces)
+                guard !trimmedLine.isEmpty,
+                      let data = trimmedLine.data(using: .utf8),
+                      let ann = try? JSONDecoder().decode(RawAnnotation.self, from: data),
+                      !ann.anchor.isEmpty, !ann.note.isEmpty,
+                      AnnotationCategory(rawValue: ann.type) != nil else { continue }
+                onAnnotation(ann)
+            }
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    // MARK: - Reading-order token stream
+
+    private struct Tok { let text: String; let rect: CGRect }
+
+    private static func readingOrderStream(tokens: [OCRToken], overlaySize: CGSize) -> [Tok] {
+        let toks: [Tok] = tokens.compactMap { t in
+            let text = t.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard text.count >= 1 else { return nil }
+            let rect = OCR.normToRectInOverlay_TopLeftOrigin(t.rectNorm, overlaySize: overlaySize)
+            return Tok(text: text, rect: rect)
+        }
+        // Same reading-order sort HighlightEngine uses: top-to-bottom rows,
+        // left-to-right within a row (6pt row tolerance).
+        return toks.sorted {
+            if abs($0.rect.midY - $1.rect.midY) > 6 { return $0.rect.midY < $1.rect.midY }
+            return $0.rect.minX < $1.rect.minX
+        }
+    }
+
+    // MARK: - Anchor -> screen rect mapping
+
+    private static func mapToScreen(_ ann: RawAnnotation, stream: [Tok]) -> ScreenAnnotation? {
+        guard AnnotationCategory(rawValue: ann.type) != nil else { return nil }
+        let anchorWords = normalize(ann.anchor).split(separator: " ").map(String.init)
+        guard !anchorWords.isEmpty else { return nil }
+
+        let normTokens = stream.map { normalize($0.text) }
+        guard let range = findWordRun(anchorWords, in: normTokens) else { return nil }
+
+        // Long anchors (a whole clause) would union into a giant box spanning
+        // several lines. Draw only the first line of the matched run so the
+        // highlight stays tight; the note still covers the full idea.
+        let runTokens = Array(stream[range])
+        let firstLineY = runTokens.first!.rect.midY
+        let firstLine = runTokens.filter { abs($0.rect.midY - firstLineY) <= 6 }
+        let rect = firstLine.map(\.rect).reduce(CGRect.null) { $0.union($1) }
+        guard !rect.isNull else { return nil }
+
+        let surface = firstLine.map(\.text).joined(separator: " ")
+        return ScreenAnnotation(surface: surface, type: ann.type, note: ann.note, rect: rect)
+    }
+
+    // Finds the first contiguous token run whose normalized text matches the
+    // anchor word sequence. Tolerant of trailing punctuation the OCR/model may
+    // disagree on; falls back to a looser prefix match on the last word.
+    private static func findWordRun(_ anchor: [String], in tokens: [String]) -> ClosedRange<Int>? {
+        guard tokens.count >= anchor.count else { return nil }
+        for start in 0...(tokens.count - anchor.count) {
+            var ok = true
+            for k in 0..<anchor.count {
+                let tok = tokens[start + k]
+                let aw = anchor[k]
+                if tok == aw { continue }
+                // last anchor word may be truncated differently (possessives, punctuation)
+                if k == anchor.count - 1, tok.hasPrefix(aw) || aw.hasPrefix(tok) { continue }
+                ok = false
+                break
+            }
+            if ok { return start...(start + anchor.count - 1) }
+        }
+        return nil
+    }
+
+    // MARK: - Normalization
+
+    private static func normalize(_ s: String) -> String {
+        var out = s.lowercased()
+        for (from, to) in [("\u{201C}", "\""), ("\u{201D}", "\""), ("\u{2018}", "'"), ("\u{2019}", "'"), ("\u{2014}", " "), ("\u{2013}", " ")] {
+            out = out.replacingOccurrences(of: from, with: to)
+        }
+        // Strip everything but letters, digits, apostrophes and spaces, then
+        // collapse whitespace. Punctuation is where OCR and the model most
+        // often disagree, so dropping it makes matching robust.
+        let allowed = out.unicodeScalars.map { sc -> Character in
+            if CharacterSet.alphanumerics.contains(sc) || sc == "'" || sc == " " { return Character(sc) }
+            return " "
+        }
+        return String(allowed).split(separator: " ").joined(separator: " ")
+    }
+
+    // MARK: - LLM call
+
+    // Prefer the proxy (production); fall back to a direct Anthropic call only
+    // when no proxy is configured but a raw dev key is present.
+    private static func requestAnnotations(visibleText: String, bookContext: String?) async -> [RawAnnotation]? {
+        if let base = proxyURL(), let token = accessToken() {
+            return await requestViaProxy(base: base, token: token, visibleText: visibleText, bookContext: bookContext)
+        }
+        return await requestDirect(visibleText: visibleText, bookContext: bookContext)
+    }
+
+    // Production path: send only the visible text + book label to the proxy,
+    // which holds the key and builds the prompt. Returns {annotations:[...]}.
+    private static func requestViaProxy(base: String, token: String, visibleText: String, bookContext: String?) async -> [RawAnnotation]? {
+        let trimmed = base.hasSuffix("/") ? String(base.dropLast()) : base
+        guard let url = URL(string: "\(trimmed)/annotate") else { return nil }
+
+        var payload: [String: Any] = ["visibleText": visibleText]
+        if let bookContext, !bookContext.isEmpty { payload["bookContext"] = bookContext }
+        guard let bodyData = try? JSONSerialization.data(withJSONObject: payload) else { return nil }
+
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.timeoutInterval = 35
+        req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = bodyData
+
+        guard let (data, resp) = try? await URLSession.shared.data(for: req),
+              (resp as? HTTPURLResponse)?.statusCode == 200,
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let arr = json["annotations"] as? [[String: Any]] else { return nil }
+
+        return arr.compactMap { item -> RawAnnotation? in
+            guard let anchor = item["anchor"] as? String, !anchor.isEmpty,
+                  let type = item["type"] as? String,
+                  let note = item["note"] as? String, !note.isEmpty,
+                  AnnotationCategory(rawValue: type) != nil else { return nil }
+            return RawAnnotation(anchor: anchor, type: type, note: note)
+        }
+    }
+
+    // Dev path: call Anthropic directly with a raw key and the local prompt.
+    private static func requestDirect(visibleText: String, bookContext: String?) async -> [RawAnnotation]? {
+        guard let apiKey = apiKey(),
+              let url = URL(string: "https://api.anthropic.com/v1/messages") else { return nil }
+
+        let sourceLine = bookContext.map { "Source (for your reference only): \($0)\n\n" } ?? ""
+        let prompt = """
+        You are an editor annotating literature for an intelligent, well-read general reader, in the manner of a Norton Critical Edition.
+
+        \(sourceLine)The text below is what is currently visible on the reader's screen: a partial view of a longer work, captured by OCR. It may begin or end mid-sentence and contain minor OCR errors. Annotate only what is fully visible here. Do not reference earlier or later parts of the work you cannot see.
+
+        <screen>
+        \(visibleText)
+        </screen>
+
+        Return a JSON array. Each element:
+        {"anchor": "<a short exact substring copied from the text above>", "type": "<allusion|context|philology|interpretation>", "note": "<= 45 words"}
+
+        Types:
+        - allusion: a biblical, classical, literary, or mythological source.
+        - context: a historical, period, nautical, or ethnographic fact needed to parse the passage.
+        - philology: an archaic or shifted word meaning, or an etymology, where it carries the sentence.
+        - interpretation: a critical reading, framed as a reading and not a fact. At most one.
+
+        Rules:
+        - Annotate only what a smart, well-read non-specialist would genuinely miss. Never define common words. Never restate the text. Never summarize plot.
+        - Be selective: at most roughly one annotation per two sentences. Zero annotations is a correct, valid answer for plain text. Do not pad.
+        - The anchor must be copied verbatim from the text so it can be located on screen, and must be SHORT: a single word or a short phrase, never a whole sentence.
+        - One annotation per distinct reference, each anchored to the specific named thing itself -- the exact title, name, place, or term -- NOT the clause around it. Never bundle several references into a single long anchor. When the text quotes a title, anchor exactly that quoted title.
+        - Terse, factual, confident register. No hedging, no throat-clearing.
+
+        For example, in a sentence like: the grand old kings of Pegu placing the title "Lord of the White Elephants" above all their other ascriptions of dominion; and the modern kings of Siam unfurling the same snow-white quadruped
+        annotate "Pegu", "Lord of the White Elephants", and "Siam" as three separate entries, each with its own short anchor -- never as one long anchor spanning the whole clause.
+
+        Return only the JSON array, no other text.
+        """
+
+        let body: [String: Any] = [
+            "model": model,
+            "max_tokens": 1500,
+            "temperature": 0,
+            "messages": [["role": "user", "content": prompt]]
+        ]
+        guard let bodyData = try? JSONSerialization.data(withJSONObject: body) else { return nil }
+
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.timeoutInterval = 30
+        req.setValue(apiKey, forHTTPHeaderField: "x-api-key")
+        req.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = bodyData
+
+        guard let (data, resp) = try? await URLSession.shared.data(for: req),
+              (resp as? HTTPURLResponse)?.statusCode == 200,
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let content = (json["content"] as? [[String: Any]])?.first,
+              let text = content["text"] as? String else { return nil }
+
+        return parseArray(text)
+    }
+
+    private static func parseArray(_ text: String) -> [RawAnnotation]? {
+        guard let start = text.firstIndex(of: "["), let end = text.lastIndex(of: "]") else { return nil }
+        let json = String(text[start...end])
+        guard let data = json.data(using: .utf8),
+              let raw = try? JSONDecoder().decode([RawAnnotation].self, from: data) else { return nil }
+        return raw.filter { !$0.anchor.isEmpty && !$0.note.isEmpty && AnnotationCategory(rawValue: $0.type) != nil }
+    }
+}
+
+// The five-type editorial taxonomy. Mirrors the CLI's AnnotationCategory but
+// the app never produces `callback` (it can't see beyond the current screen);
+// it's kept in the enum so a stray callback from the model is still accepted
+// rather than dropped.
+enum AnnotationCategory: String {
+    case allusion, context, callback, philology, interpretation
+}

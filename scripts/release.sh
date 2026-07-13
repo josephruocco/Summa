@@ -102,6 +102,7 @@ XCBUILD_ARGS=(
   -archivePath   "$ARCHIVE_PATH"
   -destination   "generic/platform=macOS"
   archive
+  -allowProvisioningUpdates
   CODE_SIGN_STYLE=Automatic
   ENABLE_HARDENED_RUNTIME=YES
 )
@@ -129,6 +130,7 @@ cat > "$EXPORT_OPTIONS_PLIST" <<'PLIST'
 PLIST
 
 xcodebuild -exportArchive \
+  -allowProvisioningUpdates \
   -archivePath "$ARCHIVE_PATH" \
   -exportPath  "$EXPORT_DIR" \
   -exportOptionsPlist "$EXPORT_OPTIONS_PLIST"

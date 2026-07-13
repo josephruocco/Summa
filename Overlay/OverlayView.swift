@@ -20,6 +20,7 @@ struct OverlayView: View {
     let sideRailWidth: CGFloat
     let sidebarAnchorX: CGFloat
     let debugModeEnabled: Bool
+    var premiumLoading: Bool = false
     var onReportErrata: ((String, String?) -> Void)? = nil
     var onCandidateSelected: ((HighlightBox, WikiResult, [WikiResult]) -> Void)? = nil
     var onCandidatesDismissed: ((HighlightBox, String, [WikiResult]) -> Void)? = nil
@@ -85,6 +86,26 @@ struct OverlayView: View {
                         onCandidateSelected: onCandidateSelected,
                         onCandidatesDismissed: onCandidatesDismissed
                     )
+                }
+
+                // Small non-interactive "reading…" pill while a premium
+                // annotation pass is in flight for the current screen.
+                if premiumLoading {
+                    HStack(spacing: 6) {
+                        ProgressView()
+                            .controlSize(.small)
+                        Text("Summa is reading…")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.horizontal, 11)
+                    .padding(.vertical, 7)
+                    .background(.ultraThinMaterial, in: Capsule())
+                    .overlay(Capsule().stroke(Color.primary.opacity(0.08), lineWidth: 1))
+                    .shadow(color: .black.opacity(0.12), radius: 8, y: 2)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+                    .padding(20)
+                    .allowsHitTesting(false)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -417,6 +438,9 @@ struct OverlayView: View {
         }
 
         private func wikiText(_ result: WikiResult) -> String {
+            // A planner gloss is the annotation itself — show it verbatim, not
+            // trimmed to a first sentence like a Wikipedia extract.
+            if let gloss = result.gloss, !gloss.isEmpty { return gloss }
             switch result.status {
             case .ok:
                 return firstSentence(result.extract) ?? "No summary text found."
@@ -531,6 +555,7 @@ struct OverlayView: View {
         }
 
         private func wikiText(_ r: WikiResult) -> String {
+            if let gloss = r.gloss, !gloss.isEmpty { return gloss }
             switch r.status {
             case .ok:
                 return firstSentence(r.extract) ?? "No summary text found."
@@ -592,7 +617,7 @@ struct OverlayView: View {
                                 .foregroundStyle(.primary)
                                 .frame(maxWidth: .infinity, alignment: .leading)
 
-                            if let summary = firstSentence(candidate.extract), !summary.isEmpty {
+                            if let summary = candidate.gloss ?? firstSentence(candidate.extract), !summary.isEmpty {
                                 Text(summary)
                                     .font(.system(size: 11))
                                     .foregroundStyle(.secondary)

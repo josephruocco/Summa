@@ -18,6 +18,7 @@
 		D9A0B1012F58A00100AA1001 /* TrainingDataStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9A0B1002F58A00100AA1001 /* TrainingDataStore.swift */; };
 		D9CCFEE32F300A1200031E62 /* CommonWords.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9CCFEE22F300A1200031E62 /* CommonWords.swift */; };
 		D9CCFEE92F300E1000031E62 /* common_words_en_20k.txt in Resources */ = {isa = PBXBuildFile; fileRef = D9CCFEE82F300E1000031E62 /* common_words_en_20k.txt */; };
+		D9106AA12F58A00100AA3001 /* summa-logo.png in Resources */ = {isa = PBXBuildFile; fileRef = D9106AA02F58A00100AA3001 /* summa-logo.png */; };
 		D9F347022F2D4146001946B2 /* ScreenGlossMVPApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9F347012F2D413B001946B2 /* ScreenGlossMVPApp.swift */; };
 		D9F347042F2D416A001946B2 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9F347032F2D416A001946B2 /* ContentView.swift */; };
 		D9F347062F2D4172001946B2 /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9F347052F2D4172001946B2 /* AppModel.swift */; };
@@ -44,6 +45,7 @@
 		D9A0B1002F58A00100AA1001 /* TrainingDataStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrainingDataStore.swift; sourceTree = "<group>"; };
 		D9CCFEE22F300A1200031E62 /* CommonWords.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommonWords.swift; sourceTree = "<group>"; };
 		D9CCFEE82F300E1000031E62 /* common_words_en_20k.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = common_words_en_20k.txt; sourceTree = "<group>"; };
+		D9106AA02F58A00100AA3001 /* summa-logo.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "summa-logo.png"; sourceTree = "<group>"; };
 		D9F346F32F2D40F2001946B2 /* ScreenGlossMVP.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ScreenGlossMVP.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		D9F347012F2D413B001946B2 /* ScreenGlossMVPApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenGlossMVPApp.swift; sourceTree = "<group>"; };
 		D9F347032F2D416A001946B2 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
@@ -143,6 +145,7 @@
 				D97D81C12F3C15B200933D15 /* Assets.xcassets */,
 				D97D81C22F3C15B200933D15 /* Info.plist */,
 				D9CCFEE82F300E1000031E62 /* common_words_en_20k.txt */,
+				D9106AA02F58A00100AA3001 /* summa-logo.png */,
 			);
 			path = Resources;
 			sourceTree = "<group>";
@@ -239,6 +242,7 @@
 			files = (
 				D97D81C32F3C15B200933D15 /* Assets.xcassets in Resources */,
 				D9CCFEE92F300E1000031E62 /* common_words_en_20k.txt in Resources */,
+				D9106AA12F58A00100AA3001 /* summa-logo.png in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

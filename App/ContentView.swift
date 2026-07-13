@@ -269,13 +269,37 @@ struct WelcomeView: View {
     private let summaRed = Color(red: 0.72, green: 0.10, blue: 0.13)
     private let ink = Color(red: 0.11, green: 0.11, blue: 0.12)
 
+    // Load the logo directly from the app bundle (a loose resource), which is
+    // more reliable than the asset catalog for a single image.
+    private var logoImage: NSImage? {
+        if let url = Bundle.main.url(forResource: "summa-logo", withExtension: "png"),
+           let img = NSImage(contentsOf: url) { return img }
+        return NSImage(named: "SummaLogo")
+    }
+
     var body: some View {
         VStack(spacing: 20) {
-            Image("SummaLogo")
-                .resizable()
-                .scaledToFit()
-                .frame(width: 260)
+            if let logo = logoImage {
+                Image(nsImage: logo)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 260)
+                    .padding(.top, 6)
+            } else {
+                HStack(spacing: 0) {
+                    Text("S")
+                        .font(.system(size: 46, weight: .bold, design: .serif))
+                        .foregroundStyle(.white)
+                        .frame(width: 64, height: 64)
+                        .background(RoundedRectangle(cornerRadius: 5).fill(summaRed))
+                        .overlay(RoundedRectangle(cornerRadius: 5).inset(by: 4).stroke(.white, lineWidth: 1.5))
+                    Text("UMMA")
+                        .font(.system(size: 40, weight: .semibold, design: .serif))
+                        .foregroundStyle(ink)
+                        .padding(.leading, 8)
+                }
                 .padding(.top, 6)
+            }
 
             VStack(spacing: 9) {
                 Text("Thank you for using Summa")

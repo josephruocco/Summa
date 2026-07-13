@@ -259,6 +259,13 @@ struct WelcomeView: View {
     @EnvironmentObject var model: AppModel
     var onDismiss: () -> Void = {}
 
+    private var appVersion: String {
+        (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "1.0"
+    }
+    // Where the "What's New" link points. Update if you host release notes
+    // elsewhere.
+    private let whatsNewURL = URL(string: "https://github.com/josephruocco/Summa/releases/latest")!
+
     var body: some View {
         VStack(spacing: 22) {
             // Uses the "SummaLogo" image asset if present; falls back to a
@@ -303,6 +310,19 @@ struct WelcomeView: View {
             .buttonStyle(.borderedProminent)
             .controlSize(.large)
             .keyboardShortcut(.defaultAction)
+
+            VStack(spacing: 3) {
+                HStack(spacing: 6) {
+                    Text("Version \(appVersion)")
+                    Text("·")
+                    Link("What's New", destination: whatsNewURL)
+                }
+                .font(.system(size: 11))
+                Text("© 2026 Joseph Ruocco. All rights reserved.")
+                    .font(.system(size: 10))
+            }
+            .foregroundStyle(.secondary)
+            .padding(.top, 6)
         }
         .padding(36)
         .frame(width: 420)

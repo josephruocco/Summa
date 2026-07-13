@@ -49,10 +49,10 @@ enum ScreenAnnotator {
     static let modelDefaultsKey       = "summa.annotationModel"
     static let defaultModel = "claude-sonnet-4-6"
 
-    // Baked-in default proxy URL. Once you deploy the proxy, set this to its
-    // HTTPS URL so testers only need to paste an access code, not a URL. A
-    // value saved in settings overrides this.
-    static let defaultProxyURL = ""
+    // Baked-in default proxy URL: the deployed Summa Cloudflare Worker. Testers
+    // only need to paste an access code, not a URL. A value saved in settings
+    // overrides this (e.g. for local dev against wrangler dev).
+    static let defaultProxyURL = "https://summa-proxy.ruoccoj19.workers.dev"
 
     private static func trimmedDefault(_ key: String) -> String? {
         guard let v = UserDefaults.standard.string(forKey: key)?

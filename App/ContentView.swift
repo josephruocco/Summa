@@ -266,7 +266,9 @@ struct WelcomeView: View {
     // elsewhere.
     private let whatsNewURL = URL(string: "https://github.com/josephruocco/Summa/releases/latest")!
 
-    private let summaRed = Color(red: 0.72, green: 0.10, blue: 0.13)
+    // Sampled from the logo: #b21320.
+    private let summaRed = Color(red: 0.698, green: 0.075, blue: 0.125)
+    private let summaRedDark = Color(red: 0.57, green: 0.055, blue: 0.10)
     private let ink = Color(red: 0.11, green: 0.11, blue: 0.12)
 
     // Load the logo directly from the app bundle (a loose resource), which is
@@ -326,7 +328,7 @@ struct WelcomeView: View {
                     .padding(.vertical, 9)
                     .background(
                         LinearGradient(
-                            colors: [summaRed.opacity(0.96), summaRed.opacity(0.82)],
+                            colors: [summaRed, summaRedDark],
                             startPoint: .top, endPoint: .bottom
                         )
                     )

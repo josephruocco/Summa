@@ -10,3 +10,10 @@ compatibility_flags = ["nodejs_compat"]
 ANNOTATION_MODEL = "claude-sonnet-4-6"
 APPLE_BUNDLE_ID = "com.josephruocco.ScreenGlossMVP"
 MAX_TEXT_CHARS = "12000"
+# Soft daily request cap for beta (stranger) codes; full-access codes are uncapped.
+BETA_DAILY_CAP = "40"
+
+# Per-code daily usage counters for the beta cap.
+[[kv_namespaces]]
+binding = "USAGE"
+id = "d62cdc20b3794e0a914ed00b3677648b"

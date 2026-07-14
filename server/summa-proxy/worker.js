@@ -43,7 +43,12 @@ function config(env) {
     apiKey: env.ANTHROPIC_API_KEY,
     model: env.ANNOTATION_MODEL || "claude-sonnet-4-6",
     maxChars: parseInt(env.MAX_TEXT_CHARS || "12000", 10),
+    // Full-access codes (friends): no usage cap.
     accessTokens: new Set((env.SUMMA_ACCESS_TOKENS || "").split(",").map((t) => t.trim()).filter(Boolean)),
+    // Beta codes (strangers): soft daily request cap, enforced via the USAGE KV.
+    betaTokens: new Set((env.SUMMA_BETA_TOKENS || "").split(",").map((t) => t.trim()).filter(Boolean)),
+    betaDailyCap: parseInt(env.BETA_DAILY_CAP || "40", 10),
+    usage: env.USAGE || null,
     bundleId: (env.APPLE_BUNDLE_ID || "").trim(),
     sessionSecret: (env.SUMMA_SESSION_SECRET || "").trim(),
     allowed: new Set((env.SUMMA_ALLOWED_EMAILS || "").split(",").map((e) => e.trim().toLowerCase()).filter(Boolean)),
@@ -291,8 +296,12 @@ export default {
     const authz = request.headers.get("authorization") || "";
     const token = authz.startsWith("Bearer ") ? authz.slice(7).trim() : "";
     let identity = null;
+    let capToken = null; // non-null for capped (beta) codes
     if (token && cfg.accessTokens.has(token)) {
       identity = `code:${token.slice(0, 6)}`;
+    } else if (token && cfg.betaTokens.has(token)) {
+      identity = `beta:${token.slice(0, 6)}`;
+      capToken = token;
     } else if (token && cfg.sessionSecret) {
       const email = await emailFromSessionToken(cfg.sessionSecret, token);
       if (email && cfg.allowed.has(email)) identity = `user:${email}`;
@@ -309,6 +318,22 @@ export default {
     const bookContext = typeof body.bookContext === "string" ? body.bookContext : "";
     if (!visibleText.trim()) return json({ error: "visibleText required" }, 400);
     if (visibleText.length > cfg.maxChars) return json({ error: `visibleText exceeds ${cfg.maxChars} chars` }, 413);
+
+    // Capped (beta) codes get a soft daily request limit, one count per
+    // annotate call, tracked per-code per-day in KV. Full-access codes and
+    // session users skip this. If the KV binding is missing, beta still works
+    // but uncapped (fail-open) rather than locking everyone out.
+    if (capToken && cfg.usage) {
+      const day = new Date().toISOString().slice(0, 10);
+      const key = `u:${capToken}:${day}`;
+      const used = parseInt((await cfg.usage.get(key)) || "0", 10);
+      if (used >= cfg.betaDailyCap) {
+        console.log(`[annotate] ${identity} over cap ${used}/${cfg.betaDailyCap}`);
+        return json({ error: `Daily beta limit reached (${cfg.betaDailyCap} pages/day). Try again tomorrow, or add your own API key.` }, 429);
+      }
+      // Best-effort increment; KV is eventually consistent, fine for a soft cap.
+      await cfg.usage.put(key, String(used + 1), { expirationTtl: 172800 });
+    }
 
     // Streaming path: the app opts in with X-Summa-Stream, and gets annotations
     // as newline-delimited JSON (one per line) the instant the model finishes

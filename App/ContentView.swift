@@ -261,6 +261,17 @@ struct WelcomeView: View {
         return NSImage(named: "SummaLogo")
     }
 
+    // Open the Settings scene from this standalone window. openSettings isn't
+    // wired into a manually-hosted NSWindow, so go through the AppKit selector.
+    private func openSettingsWindow() {
+        if #available(macOS 14, *) {
+            NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+        } else {
+            NSApp.sendAction(Selector(("showPreferencesWindow:")), to: nil, from: nil)
+        }
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
             if let logo = logoImage {
@@ -298,6 +309,38 @@ struct WelcomeView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+
+            // First-run nudge: shown until the user adds a beta code or their
+            // own API key, so premium annotations aren't silently off.
+            if !ScreenAnnotator.isConfigured {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Turn on premium annotations")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(ink)
+                    Text("Enter a beta code or add your Anthropic API key to surface references, allusions, and context — not just word definitions.")
+                        .font(.system(size: 12))
+                        .foregroundStyle(ink.opacity(0.62))
+                        .fixedSize(horizontal: false, vertical: true)
+                    HStack(spacing: 16) {
+                        Button {
+                            openSettingsWindow()
+                            onDismiss()
+                        } label: {
+                            Text("Open Settings")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(summaRed)
+                        }
+                        .buttonStyle(.plain)
+                        Link("Setup guide", destination: URL(string: "https://summa.josephruocco.net/setup.html")!)
+                            .font(.system(size: 12))
+                            .tint(summaRed)
+                    }
+                }
+                .padding(14)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(RoundedRectangle(cornerRadius: 10).fill(summaRed.opacity(0.06)))
+                .overlay(RoundedRectangle(cornerRadius: 10).stroke(summaRed.opacity(0.18), lineWidth: 1))
+            }
 
             Button {
                 Task { await model.resumeAutomaticSession() }

@@ -10,8 +10,11 @@ compatibility_flags = ["nodejs_compat"]
 ANNOTATION_MODEL = "claude-sonnet-4-6"
 APPLE_BUNDLE_ID = "com.josephruocco.ScreenGlossMVP"
 MAX_TEXT_CHARS = "12000"
-# Soft daily request cap for beta (stranger) codes; full-access codes are uncapped.
+# Soft daily request cap for beta codes: per user (by IP), and a global ceiling
+# across all beta traffic so a viral day can't run up the bill. Full-access
+# codes and API-key users are uncapped.
 BETA_DAILY_CAP = "40"
+BETA_GLOBAL_CAP = "1500"
 
 # Per-code daily usage counters for the beta cap.
 [[kv_namespaces]]

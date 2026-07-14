@@ -47,7 +47,8 @@ function config(env) {
     accessTokens: new Set((env.SUMMA_ACCESS_TOKENS || "").split(",").map((t) => t.trim()).filter(Boolean)),
     // Beta codes (strangers): soft daily request cap, enforced via the USAGE KV.
     betaTokens: new Set((env.SUMMA_BETA_TOKENS || "").split(",").map((t) => t.trim()).filter(Boolean)),
-    betaDailyCap: parseInt(env.BETA_DAILY_CAP || "40", 10),
+    betaDailyCap: parseInt(env.BETA_DAILY_CAP || "40", 10),        // per user (IP) / day
+    betaGlobalCap: parseInt(env.BETA_GLOBAL_CAP || "1500", 10),    // total beta calls / day
     usage: env.USAGE || null,
     bundleId: (env.APPLE_BUNDLE_ID || "").trim(),
     sessionSecret: (env.SUMMA_SESSION_SECRET || "").trim(),
@@ -325,14 +326,29 @@ export default {
     // but uncapped (fail-open) rather than locking everyone out.
     if (capToken && cfg.usage) {
       const day = new Date().toISOString().slice(0, 10);
-      const key = `u:${capToken}:${day}`;
-      const used = parseInt((await cfg.usage.get(key)) || "0", 10);
-      if (used >= cfg.betaDailyCap) {
-        console.log(`[annotate] ${identity} over cap ${used}/${cfg.betaDailyCap}`);
-        return json({ error: `Daily beta limit reached (${cfg.betaDailyCap} pages/day). Try again tomorrow, or add your own API key.` }, 429);
+      const ip = request.headers.get("cf-connecting-ip") || "noip";
+
+      // Per-user cap, keyed by IP: a shared code gives each person their own
+      // daily quota instead of everyone draining one bucket.
+      const userKey = `u:${ip}:${day}`;
+      const userUsed = parseInt((await cfg.usage.get(userKey)) || "0", 10);
+      if (userUsed >= cfg.betaDailyCap) {
+        console.log(`[annotate] ${identity} ip-cap ${userUsed}/${cfg.betaDailyCap}`);
+        return json({ error: `Daily beta limit reached (${cfg.betaDailyCap} pages/day). Try again tomorrow, or add your own API key for unlimited use.` }, 429);
       }
-      // Best-effort increment; KV is eventually consistent, fine for a soft cap.
-      await cfg.usage.put(key, String(used + 1), { expirationTtl: 172800 });
+
+      // Global safety cap across all beta traffic, so a viral day can't run up
+      // the bill. Friends and API-key users are unaffected.
+      const globalKey = `g:${day}`;
+      const globalUsed = parseInt((await cfg.usage.get(globalKey)) || "0", 10);
+      if (globalUsed >= cfg.betaGlobalCap) {
+        console.log(`[annotate] global beta cap ${globalUsed}/${cfg.betaGlobalCap}`);
+        return json({ error: `Summa's beta is at capacity for today. Try again tomorrow, or add your own API key for unlimited use.` }, 429);
+      }
+
+      // Best-effort increments; KV is eventually consistent, fine for soft caps.
+      await cfg.usage.put(userKey, String(userUsed + 1), { expirationTtl: 172800 });
+      await cfg.usage.put(globalKey, String(globalUsed + 1), { expirationTtl: 172800 });
     }
 
     // Streaming path: the app opts in with X-Summa-Stream, and gets annotations

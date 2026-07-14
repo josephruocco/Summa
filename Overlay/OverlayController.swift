@@ -150,10 +150,16 @@ final class OverlayController {
 
     func setPremiumHighlights(_ annotations: [ScreenAnnotation]) {
         premiumLoading = false
-        let boxes = annotations.map { ann in
-            HighlightBox(text: ann.surface, rect: ann.rect, kind: .reference)
-        }
-        for (box, ann) in zip(boxes, annotations) {
+        var boxes: [HighlightBox] = []
+        for ann in annotations {
+            // One box per visual line so a wrapped phrase is highlighted
+            // line-by-line. All boxes share the same surface/context, so they
+            // resolve to the same tooltip key -- hovering any of them shows the
+            // same gloss, and seeding the cache once covers them all.
+            let annBoxes = ann.rects.map {
+                HighlightBox(text: ann.surface, rect: $0, kind: .reference)
+            }
+            guard let first = annBoxes.first else { continue }
             let result = WikiResult(
                 status: .ok,
                 requested: ann.surface,
@@ -165,7 +171,8 @@ final class OverlayController {
                 score: nil,
                 gloss: ann.note
             )
-            LookupCache.shared.setWikipedia(lookupKey(for: box), result)
+            LookupCache.shared.setWikipedia(lookupKey(for: first), result)
+            boxes.append(contentsOf: annBoxes)
         }
         premiumRefs = boxes
         if layoutMode == .side {

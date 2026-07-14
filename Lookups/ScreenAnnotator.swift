@@ -20,7 +20,8 @@ struct ScreenAnnotation: Sendable {
     let surface: String   // the actual OCR text the anchor matched, for display
     let type: String      // allusion | context | philology | interpretation
     let note: String
-    let rect: CGRect      // overlay-local, top-left origin
+    let rects: [CGRect]   // overlay-local, top-left origin; one rect per visual
+                          // line, so a phrase that wraps is boxed line-by-line
 }
 
 private struct RawAnnotation: Codable {
@@ -259,17 +260,26 @@ enum ScreenAnnotator {
         let normTokens = stream.map { normalize($0.text) }
         guard let range = findWordRun(anchorWords, in: normTokens) else { return nil }
 
-        // Long anchors (a whole clause) would union into a giant box spanning
-        // several lines. Draw only the first line of the matched run so the
-        // highlight stays tight; the note still covers the full idea.
+        // A matched run can wrap across lines. Group its tokens into visual
+        // lines (by vertical position) and union each line into its own rect,
+        // so a wrapped phrase gets one tight box per line instead of a single
+        // box that swallows the gap between the lines.
         let runTokens = Array(stream[range])
-        let firstLineY = runTokens.first!.rect.midY
-        let firstLine = runTokens.filter { abs($0.rect.midY - firstLineY) <= 6 }
-        let rect = firstLine.map(\.rect).reduce(CGRect.null) { $0.union($1) }
-        guard !rect.isNull else { return nil }
+        var lines: [[Tok]] = []
+        for t in runTokens.sorted(by: { $0.rect.midY < $1.rect.midY }) {
+            if let ref = lines.last?.first, abs(t.rect.midY - ref.rect.midY) <= max(6, t.rect.height * 0.6) {
+                lines[lines.count - 1].append(t)
+            } else {
+                lines.append([t])
+            }
+        }
+        let rects = lines
+            .map { line in line.map(\.rect).reduce(CGRect.null) { $0.union($1) } }
+            .filter { !$0.isNull }
+        guard !rects.isEmpty else { return nil }
 
-        let surface = firstLine.map(\.text).joined(separator: " ")
-        return ScreenAnnotation(surface: surface, type: ann.type, note: ann.note, rect: rect)
+        let surface = runTokens.map(\.text).joined(separator: " ")
+        return ScreenAnnotation(surface: surface, type: ann.type, note: ann.note, rects: rects)
     }
 
     // Finds the first contiguous token run whose normalized text matches the

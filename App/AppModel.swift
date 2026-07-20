@@ -81,7 +81,11 @@ final class AppModel: ObservableObject {
         hasExportFolder = loadExportFolderURL() != nil
         overlayLayout = loadOverlayLayout()
         showAnnotationDebug = UserDefaults.standard.bool(forKey: Self.annotationDebugKey)
-        premiumAnnotations = UserDefaults.standard.bool(forKey: Self.premiumKey)
+        // Default ON for a fresh install. bool(forKey:) returns false for an
+        // unset key, which used to leave premium silently off for every new
+        // user even after they entered a valid access code. Only an explicitly
+        // stored value should turn it off.
+        premiumAnnotations = (UserDefaults.standard.object(forKey: Self.premiumKey) as? Bool) ?? true
         accessCode = UserDefaults.standard.string(forKey: ScreenAnnotator.accessTokenDefaultsKey) ?? ""
         proxyURL = UserDefaults.standard.string(forKey: ScreenAnnotator.proxyURLDefaultsKey) ?? ""
         anthropicAPIKey = UserDefaults.standard.string(forKey: ScreenAnnotator.apiKeyDefaultsKey) ?? ""

@@ -1,67 +1,46 @@
-# SUMMA
+# Summa
 
-![SUMMA Logo](./assets/summa-logo.png)
+![Summa](./assets/summa-logo.png)
 
-**SUMMA** is a reading-augmentation tool that highlights text in real time and surfaces
-**Wikipedia context** and **dictionary definitions** directly alongside what you’re reading.
+Summa is a macOS menu bar app that lays an annotation layer over anything you read. Point it at whatever is on screen, a book in Kindle, a PDF, an article in a browser tab, and it surfaces the references, context, and word meanings a careful editor would add, right on top of the page, on hover. Nothing to import, no separate reading app, no tab to open.
 
-It is designed to preserve immersion while providing historical, conceptual, and linguistic
-context — without tab-switching, pop-ups, or distraction loops.
+## What it does
 
----
+Summa reads along with you and annotates the few things per page actually worth a pause: a classical or biblical allusion, a piece of period context, a callback to something earlier in the same book, a word whose meaning has drifted. It is built for restraint. Annotating less, but annotating the things that matter, is most of the work.
 
-## What It Does
+Hover a highlighted phrase and a short gloss appears. Nothing is written into the app you are reading in. Summa draws a transparent layer on top, so it works the same over any reading surface.
 
-When you read text (web, PDF, EPUB, or system-level selection), SUMMA:
+## How it works
 
-- Detects **important terms, names, and concepts**
-- Highlights them inline (non-destructively)
-- Displays:
-  - **Wikipedia summaries** for people, places, events, and ideas
-  - **Dictionary definitions** for vocabulary
-- Keeps annotations **minimal, contextual, and dismissible**
+The interesting part is the pipeline behind the overlay:
 
-Think: footnotes that appear only when they’re useful.
+1. **Capture.** ScreenCaptureKit grabs a frame of the frontmost window. Vision runs OCR and returns the recognized text with a bounding box for every token.
+2. **Segment.** The tokens are stitched back into reading order and split into passages.
+3. **Annotate.** Each passage goes to a language model behind a prompt tuned for restraint. The model returns structured output: the exact phrase, a short gloss, and a type.
+4. **Ground.** Every returned phrase is matched back against the OCR tokens, so annotations land on the real words on screen rather than on a paraphrase. The matched run is grouped into visual lines and each line is unioned into its own rectangle. If a phrase cannot be found in the real tokens it is discarded. The model proposes; something it cannot fabricate disposes.
+5. **Render.** A transparent overlay draws a highlight box per line. Hover shows the gloss.
 
----
+Model calls route through a Cloudflare Worker proxy rather than shipping a key in the client, and results stream back as NDJSON so annotations appear incrementally instead of after one long wait.
 
-## Why SUMMA Exists
+## Evaluating the annotations
 
-Most reading tools force a tradeoff between:
-- Depth vs. flow
-- Context vs. attention
+The hard problem is not calling a model, it is teaching it restraint and measuring whether it listened. The `tools/` directory holds the eval harness: a hand curated ground truth set across many works, gold sets for annotation types, and the scoring scripts. The ground truth deliberately includes cases labeled to suppress, so that returning nothing becomes a scoreable outcome and annotation noise is penalized rather than invisible.
 
-SUMMA removes that tradeoff by letting context **surface quietly** and disappear just as easily.
+The design story behind this is written up here: [Measuring Silence](https://josephruocco.net/2026/07/27/measuring-silence/).
 
-The name references medieval *summae* — attempts to systematically organize knowledge without fragmenting it.
+## Stack
 
----
+- SwiftUI and AppKit, a `MenuBarExtra` accessory app
+- ScreenCaptureKit for capture, Vision for OCR
+- A Cloudflare Worker proxy (`server/summa-proxy`) in front of the Anthropic Messages API, with streaming and per code rate limits
+- A Python eval harness in `tools/`
 
-## Core Features
+## Build and run
 
-- 🔎 **Automatic term detection**
-- 📚 **Wikipedia lookup (concept-aware, not just keyword-based)**
-- 📖 **Dictionary definitions (part-of-speech aware)**
-- ✍️ **Inline highlights** that do not modify source text
-- 🪟 **Side or floating annotation panels**
-- ⏱️ **Debounced lookups** to avoid visual noise
-- 🧠 **Stop-word and frequency filtering**
+Open `ScreenGlossMVP.xcodeproj` in Xcode and build the `ScreenGlossMVP` scheme for macOS. The app is not sandboxed, because it needs Screen Recording permission to read the frontmost window. Grant that under System Settings on first launch.
 
----
+Premium annotations run through the proxy and need an access code, or you can point the app at your own Anthropic key in Settings.
 
-## Architecture (High Level)
+## Status
 
-```text
-Text Source
-    ↓
-Tokenization + POS tagging
-    ↓
-Entity / Term Candidate Filter
-    ↓
-┌───────────────────────────────┐
-│  Wikipedia API  |  Dictionary │
-│        API      |      API    │
-└───────────────────────────────┘
-    ↓
-Annotation Layer
-(overlay — not DOM rewrite)
+Summa is early and under active development. The demos on [josephruocco.net](https://josephruocco.net) show it running on chapters of public domain classics.

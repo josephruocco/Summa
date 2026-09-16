@@ -1,0 +1,883 @@
+{
+  "source": "/tmp/claude-0/-home-user-Summa/56f46970-43db-5782-a256-96ff147cce04/scratchpad/ch26.txt",
+  "words": 1231,
+  "common_limit": 10000,
+  "xray": [
+    {
+      "text": "Starbuck",
+      "label": "PERSON",
+      "count": 9
+    },
+    {
+      "text": "Thou",
+      "label": "GPE",
+      "count": 3
+    },
+    {
+      "text": "Stubb",
+      "label": "PERSON",
+      "count": 2
+    },
+    {
+      "text": "Andrew Jackson",
+      "label": "PERSON",
+      "count": 1
+    },
+    {
+      "text": "Bunyan",
+      "label": "PERSON",
+      "count": 1
+    },
+    {
+      "text": "Cape",
+      "label": "LOC",
+      "count": 1
+    },
+    {
+      "text": "Cervantes",
+      "label": "PERSON",
+      "count": 1
+    },
+    {
+      "text": "Indies",
+      "label": "ORG",
+      "count": 1
+    },
+    {
+      "text": "Knights and Squires",
+      "label": "ORG",
+      "count": 1
+    },
+    {
+      "text": "Nantucket",
+      "label": "GPE",
+      "count": 1
+    },
+    {
+      "text": "Outward",
+      "label": "ORG",
+      "count": 1
+    },
+    {
+      "text": "Pequod",
+      "label": "GPE",
+      "count": 1
+    },
+    {
+      "text": "Quaker",
+      "label": "ORG",
+      "count": 1
+    },
+    {
+      "text": "Spirit of Equality",
+      "label": "ORG",
+      "count": 1
+    }
+  ],
+  "word_wise": [
+    {
+      "lemma": "didst",
+      "pos": "VERB",
+      "count": 3,
+      "first_form": "didst"
+    },
+    {
+      "lemma": "peril",
+      "pos": "NOUN",
+      "count": 3,
+      "first_form": "perils"
+    },
+    {
+      "lemma": "fishery",
+      "pos": "NOUN",
+      "count": 2,
+      "first_form": "fishery"
+    },
+    {
+      "lemma": "fortitude",
+      "pos": "NOUN",
+      "count": 2,
+      "first_form": "fortitude"
+    },
+    {
+      "lemma": "persist",
+      "pos": "VERB",
+      "count": 2,
+      "first_form": "persisting"
+    },
+    {
+      "lemma": "robe",
+      "pos": "NOUN",
+      "count": 2,
+      "first_form": "robes"
+    },
+    {
+      "lemma": "superstition",
+      "pos": "NOUN",
+      "count": 2,
+      "first_form": "superstition"
+    },
+    {
+      "lemma": "abased",
+      "pos": "ADJ",
+      "count": 1,
+      "first_form": "abased"
+    },
+    {
+      "lemma": "abasement",
+      "pos": "NOUN",
+      "count": 1,
+      "first_form": "abasement"
+    },
+    {
+      "lemma": "abide",
+      "pos": "VERB",
+      "count": 1,
+      "first_form": "abiding"
+    },
+    {
+      "lemma": "abound",
+      "pos": "VERB",
+      "count": 1,
+      "first_form": "abounding"
+    },
+    {
+      "lemma": "anguish",
+      "pos": "NOUN",
+      "count": 1,
+      "first_form": "anguish"
+    },
+    {
+      "lemma": "arid",
+      "pos": "NOUN",
+      "count": 1,
+      "first_form": "arid"
+    },
+    {
+      "lemma": "ascribe",
+      "pos": "VERB",
+      "count": 1,
+      "first_form": "ascribe"
+    },
+    {
+      "lemma": "biscuit",
+      "pos": "NOUN",
+      "count": 1,
+      "first_form": "biscuit"
+    },
+    {
+      "lemma": "bleed",
+      "pos": "VERB",
+      "count": 1,
+      "first_form": "bleeds"
+    },
+    {
+      "lemma": "blemish",
+      "pos": "NOUN",
+      "count": 1,
+      "first_form": "blemish"
+    },
+    {
+      "lemma": "blight",
+      "pos": "NOUN",
+      "count": 1,
+      "first_form": "blight"
+    },
+    {
+      "lemma": "bottled",
+      "pos": "ADJ",
+      "count": 1,
+      "first_form": "bottled"
+    },
+    {
+      "lemma": "bottomless",
+      "pos": "ADJ",
+      "count": 1,
+      "first_form": "bottomless"
+    },
+    {
+      "lemma": "bravery",
+      "pos": "NOUN",
+      "count": 1,
+      "first_form": "bravery"
+    },
+    {
+      "lemma": "brow",
+      "pos": "NOUN",
+      "count": 1,
+      "first_form": "brow"
+    },
+    {
+      "lemma": "calmly",
+      "pos": "ADV",
+      "count": 1,
+      "first_form": "calmly"
+    },
+    {
+      "lemma": "castaway",
+      "pos": "NOUN",
+      "count": 1,
+      "first_form": "castaways"
+    },
+    {
+      "lemma": "chiefly",
+      "pos": "ADV",
+      "count": 1,
+      "first_form": "chiefly"
+    },
+    {
+      "lemma": "chronometer",
+      "pos": "NOUN",
+      "count": 1,
+      "first_form": "chronometer"
+    },
+    {
+      "lemma": "circumference",
+      "pos": "NOUN",
+      "count": 1,
+      "first_form": "circumference"
+    },
+    {
+      "lemma": "circumstance",
+      "pos": "NOUN",
+      "count": 1,
+      "first_form": "circumstances"
+    },
+    {
+      "lemma": "clothe",
+      "pos": "NOUN",
+      "count": 1,
+      "first_form": "clothe"
+    },
+    {
+      "lemma": "comrade",
+      "pos": "NOUN",
+      "count": 1,
+      "first_form": "comrade"
+    },
+    {
+      "lemma": "condensation",
+      "pos": "NOUN",
+      "count": 1,
+      "first_form": "condensation"
+    },
+    {
+      "lemma": "confinement",
+      "pos": "NOUN",
+      "count": 1,
+      "first_form": "confinement"
+    },
+    {
+      "lemma": "conscientious",
+      "pos": "ADJ",
+      "count": 1,
+      "first_form": "conscientious"
+    },
+    {
+      "lemma": "convict",
+      "pos": "NOUN",
+      "count": 1,
+      "first_form": "convict"
+    },
+    {
+      "lemma": "coward",
+      "pos": "NOUN",
+      "count": 1,
+      "first_form": "coward"
+    },
+    {
+      "lemma": "crusader",
+      "pos": "NOUN",
+      "count": 1,
+      "first_form": "crusader"
+    },
+    {
+      "lemma": "cull",
+      "pos": "ADJ",
+      "count": 1,
+      "first_form": "cullest"
+    },
+    {
+      "lemma": "daring",
+      "pos": "NOUN",
+      "count": 1,
+      "first_form": "daring"
+    },
+    {
+      "lemma": "detestable",
+      "pos": "ADJ",
+      "count": 1,
+      "first_form": "detestable"
+    },
+    {
+      "lemma": "disastrous",
+      "pos": "ADJ",
+      "count": 1,
+      "first_form": "disastrous"
+    },
+    {
+      "lemma": "doubly",
+      "pos": "ADV",
+      "count": 1,
+      "first_form": "doubly"
+    },
+    {
+      "lemma": "earnest",
+      "pos": "ADJ",
+      "count": 1,
+      "first_form": "earnest"
+    },
+    {
+      "lemma": "earthly",
+      "pos": "ADJ",
+      "count": 1,
+      "first_form": "earthly"
+    },
+    {
+      "lemma": "embalm",
+      "pos": "VERB",
+      "count": 1,
+      "first_form": "embalmed"
+    },
+    {
+      "lemma": "endue",
+      "pos": "VERB",
+      "count": 1,
+      "first_form": "endued"
+    },
+    {
+      "lemma": "engender",
+      "pos": "VERB",
+      "count": 1,
+      "first_form": "engendering"
+    },
+    {
+      "lemma": "enraged",
+      "pos": "ADJ",
+      "count": 1,
+      "first_form": "enraged"
+    },
+    {
+      "lemma": "estimation",
+      "pos": "NOUN",
+      "count": 1,
+      "first_form": "estimation"
+    },
+    {
+      "lemma": "ethereal",
+      "pos": "ADJ",
+      "count": 1,
+      "first_form": "ethereal"
+    },
+    {
+      "lemma": "evince",
+      "pos": "VERB",
+      "count": 1,
+      "first_form": "evinced"
+    },
+    {
+      "lemma": "exalt",
+      "pos": "VERB",
+      "count": 1,
+      "first_form": "exalted"
+    },
+    {
+      "lemma": "famine",
+      "pos": "NOUN",
+      "count": 1,
+      "first_form": "famine"
+    },
+    {
+      "lemma": "fearless",
+      "pos": "ADJ",
+      "count": 1,
+      "first_form": "fearless"
+    },
+    {
+      "lemma": "flourish",
+      "pos": "ADJ",
+      "count": 1,
+      "first_form": "flourish"
+    },
+    {
+      "lemma": "foolishly",
+      "pos": "ADV",
+      "count": 1,
+      "first_form": "foolishly"
+    },
+    {
+      "lemma": "glowing",
+      "pos": "ADJ",
+      "count": 1,
+      "first_form": "glowing"
+    },
+    {
+      "lemma": "gush",
+      "pos": "NOUN",
+      "count": 1,
+      "first_form": "gush"
+    },
+    {
+      "lemma": "hast",
+      "pos": "NOUN",
+      "count": 1,
+      "first_form": "hast"
+    },
+    {
+      "lemma": "hearted",
+      "pos": "ADJ",
+      "count": 1,
+      "first_form": "hearted"
+    },
+    {
+      "lemma": "hurl",
+      "pos": "VERB",
+      "count": 1,
+      "first_form": "hurl"
+    },
+    {
+      "lemma": "ignominious",
+      "pos": "ADJ",
+      "count": 1,
+      "first_form": "ignominious"
+    },
+    {
+      "lemma": "immaculate",
+      "pos": "VERB",
+      "count": 1,
+      "first_form": "immaculate"
+    },
+    {
+      "lemma": "incline",
+      "pos": "VERB",
+      "count": 1,
+      "first_form": "incline"
+    },
+    {
+      "lemma": "intrepid",
+      "pos": "ADJ",
+      "count": 1,
+      "first_form": "intrepid"
+    },
+    {
+      "lemma": "investiture",
+      "pos": "NOUN",
+      "count": 1,
+      "first_form": "investiture"
+    },
+    {
+      "lemma": "inward",
+      "pos": "ADJ",
+      "count": 1,
+      "first_form": "inward"
+    },
+    {
+      "lemma": "irrational",
+      "pos": "ADJ",
+      "count": 1,
+      "first_form": "irrational"
+    },
+    {
+      "lemma": "knave",
+      "pos": "NOUN",
+      "count": 1,
+      "first_form": "knaves"
+    },
+    {
+      "lemma": "latent",
+      "pos": "ADJ",
+      "count": 1,
+      "first_form": "latent"
+    },
+    {
+      "lemma": "latently",
+      "pos": "ADV",
+      "count": 1,
+      "first_form": "latently"
+    },
+    {
+      "lemma": "latitude",
+      "pos": "NOUN",
+      "count": 1,
+      "first_form": "latitudes"
+    },
+    {
+      "lemma": "limb",
+      "pos": "NOUN",
+      "count": 1,
+      "first_form": "limbs"
+    },
+    {
+      "lemma": "linger",
+      "pos": "VERB",
+      "count": 1,
+      "first_form": "lingering"
+    },
+    {
+      "lemma": "loneliness",
+      "pos": "NOUN",
+      "count": 1,
+      "first_form": "loneliness"
+    },
+    {
+      "lemma": "manliness",
+      "pos": "NOUN",
+      "count": 1,
+      "first_form": "manliness"
+    },
+    {
+      "lemma": "mantle",
+      "pos": "NOUN",
+      "count": 1,
+      "first_form": "mantle"
+    },
+    {
+      "lemma": "mariner",
+      "pos": "NOUN",
+      "count": 1,
+      "first_form": "mariners"
+    },
+    {
+      "lemma": "meagre",
+      "pos": "ADJ",
+      "count": 1,
+      "first_form": "meagre"
+    },
+    {
+      "lemma": "menace",
+      "pos": "VERB",
+      "count": 1,
+      "first_form": "menace"
+    },
+    {
+      "lemma": "mortally",
+      "pos": "ADV",
+      "count": 1,
+      "first_form": "mortally"
+    },
+    {
+      "lemma": "mournful",
+      "pos": "ADJ",
+      "count": 1,
+      "first_form": "mournful"
+    },
+    {
+      "lemma": "nigh",
+      "pos": "ADJ",
+      "count": 1,
+      "first_form": "nigh"
+    },
+    {
+      "lemma": "omnipresence",
+      "pos": "NOUN",
+      "count": 1,
+      "first_form": "omnipresence"
+    },
+    {
+      "lemma": "overbalance",
+      "pos": "VERB",
+      "count": 1,
+      "first_form": "overbalance"
+    },
+    {
+      "lemma": "pantomime",
+      "pos": "NOUN",
+      "count": 1,
+      "first_form": "pantomime"
+    },
+    {
+      "lemma": "paupered",
+      "pos": "ADJ",
+      "count": 1,
+      "first_form": "paupered"
+    },
+    {
+      "lemma": "pebble",
+      "pos": "NOUN",
+      "count": 1,
+      "first_form": "pebbles"
+    },
+    {
+      "lemma": "perchance",
+      "pos": "VERB",
+      "count": 1,
+      "first_form": "perchance"
+    },
+    {
+      "lemma": "perilous",
+      "pos": "ADJ",
+      "count": 1,
+      "first_form": "perilous"
+    },
+    {
+      "lemma": "piety",
+      "pos": "VERB",
+      "count": 1,
+      "first_form": "piety"
+    },
+    {
+      "lemma": "poetic",
+      "pos": "ADJ",
+      "count": 1,
+      "first_form": "poetic"
+    },
+    {
+      "lemma": "portent",
+      "pos": "NOUN",
+      "count": 1,
+      "first_form": "portents"
+    },
+    {
+      "lemma": "presentiment",
+      "pos": "NOUN",
+      "count": 1,
+      "first_form": "presentiments"
+    },
+    {
+      "lemma": "radiate",
+      "pos": "VERB",
+      "count": 1,
+      "first_form": "radiates"
+    },
+    {
+      "lemma": "remembrance",
+      "pos": "NOUN",
+      "count": 1,
+      "first_form": "remembrances"
+    },
+    {
+      "lemma": "renegade",
+      "pos": "NOUN",
+      "count": 1,
+      "first_form": "renegades"
+    },
+    {
+      "lemma": "restrain",
+      "pos": "VERB",
+      "count": 1,
+      "first_form": "restrain"
+    },
+    {
+      "lemma": "reverence",
+      "pos": "NOUN",
+      "count": 1,
+      "first_form": "reverence"
+    },
+    {
+      "lemma": "revivify",
+      "pos": "VERB",
+      "count": 1,
+      "first_form": "revivified"
+    },
+    {
+      "lemma": "robed",
+      "pos": "ADJ",
+      "count": 1,
+      "first_form": "robed"
+    },
+    {
+      "lemma": "ruggedness",
+      "pos": "NOUN",
+      "count": 1,
+      "first_form": "ruggedness"
+    },
+    {
+      "lemma": "scarce",
+      "pos": "ADJ",
+      "count": 1,
+      "first_form": "scarce"
+    },
+    {
+      "lemma": "seaman",
+      "pos": "NOUN",
+      "count": 1,
+      "first_form": "seaman"
+    },
+    {
+      "lemma": "shalt",
+      "pos": "NOUN",
+      "count": 1,
+      "first_form": "shalt"
+    },
+    {
+      "lemma": "shameful",
+      "pos": "ADJ",
+      "count": 1,
+      "first_form": "shameful"
+    },
+    {
+      "lemma": "shin",
+      "pos": "VERB",
+      "count": 1,
+      "first_form": "shining"
+    },
+    {
+      "lemma": "sobriety",
+      "pos": "NOUN",
+      "count": 1,
+      "first_form": "sobriety"
+    },
+    {
+      "lemma": "sorrowful",
+      "pos": "ADJ",
+      "count": 1,
+      "first_form": "sorrowful"
+    },
+    {
+      "lemma": "sparkling",
+      "pos": "ADJ",
+      "count": 1,
+      "first_form": "sparkling"
+    },
+    {
+      "lemma": "spectacle",
+      "pos": "NOUN",
+      "count": 1,
+      "first_form": "spectacle"
+    },
+    {
+      "lemma": "staid",
+      "pos": "ADJ",
+      "count": 1,
+      "first_form": "staid"
+    },
+    {
+      "lemma": "staple",
+      "pos": "ADJ",
+      "count": 1,
+      "first_form": "staple"
+    },
+    {
+      "lemma": "steadfast",
+      "pos": "ADJ",
+      "count": 1,
+      "first_form": "steadfast"
+    },
+    {
+      "lemma": "stifle",
+      "pos": "VERB",
+      "count": 1,
+      "first_form": "stifle"
+    },
+    {
+      "lemma": "stumped",
+      "pos": "ADJ",
+      "count": 1,
+      "first_form": "stumped"
+    },
+    {
+      "lemma": "superfluousness",
+      "pos": "NOUN",
+      "count": 1,
+      "first_form": "superfluousness"
+    },
+    {
+      "lemma": "superstitiousness",
+      "pos": "NOUN",
+      "count": 1,
+      "first_form": "superstitiousness"
+    },
+    {
+      "lemma": "tame",
+      "pos": "NOUN",
+      "count": 1,
+      "first_form": "tame"
+    },
+    {
+      "lemma": "thinness",
+      "pos": "NOUN",
+      "count": 1,
+      "first_form": "thinness"
+    },
+    {
+      "lemma": "torrid",
+      "pos": "NOUN",
+      "count": 1,
+      "first_form": "torrid"
+    },
+    {
+      "lemma": "uncommonly",
+      "pos": "ADV",
+      "count": 1,
+      "first_form": "Uncommonly"
+    },
+    {
+      "lemma": "undraped",
+      "pos": "ADJ",
+      "count": 1,
+      "first_form": "undraped"
+    },
+    {
+      "lemma": "upbraiding",
+      "pos": "NOUN",
+      "count": 1,
+      "first_form": "upbraidings"
+    },
+    {
+      "lemma": "valor",
+      "pos": "NOUN",
+      "count": 1,
+      "first_form": "valor"
+    },
+    {
+      "lemma": "valour",
+      "pos": "NOUN",
+      "count": 1,
+      "first_form": "valour"
+    },
+    {
+      "lemma": "vicissitude",
+      "pos": "NOUN",
+      "count": 1,
+      "first_form": "vicissitudes"
+    },
+    {
+      "lemma": "vitality",
+      "pos": "NOUN",
+      "count": 1,
+      "first_form": "vitality"
+    },
+    {
+      "lemma": "watery",
+      "pos": "ADJ",
+      "count": 1,
+      "first_form": "watery"
+    },
+    {
+      "lemma": "weave",
+      "pos": "NOUN",
+      "count": 1,
+      "first_form": "weave"
+    },
+    {
+      "lemma": "weld",
+      "pos": "VERB",
+      "count": 1,
+      "first_form": "welded"
+    },
+    {
+      "lemma": "whaling",
+      "pos": "NOUN",
+      "count": 1,
+      "first_form": "whaling"
+    },
+    {
+      "lemma": "wherefore",
+      "pos": "ADV",
+      "count": 1,
+      "first_form": "Wherefore"
+    },
+    {
+      "lemma": "wield",
+      "pos": "VERB",
+      "count": 1,
+      "first_form": "wields"
+    },
+    {
+      "lemma": "withstand",
+      "pos": "VERB",
+      "count": 1,
+      "first_form": "withstand"
+    }
+  ]
+}

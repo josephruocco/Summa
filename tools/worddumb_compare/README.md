@@ -4,18 +4,24 @@ Question: is Summa's annotation output actually different from what
 [WordDumb](https://github.com/xxyzz/WordDumb) already produces for free, or is it
 a costlier restatement of the same thing?
 
-Test text: Moby-Dick ch. 42, "The Whiteness of the Whale" (Gutenberg #2701),
-3,651 words. Chosen because it is the most reference-dense chapter in the book —
-the best case for WordDumb's entity extraction and the hardest case for a
-restraint claim.
+Test text: two chapters of Moby-Dick (Gutenberg #2701). Ch. 42 "The Whiteness of
+the Whale" (3,651 words) is the most reference-dense chapter in the book — the
+best case for WordDumb's entity extraction and the hardest case for a restraint
+claim. Ch. 26 "Knights and Squires" (1,221 words) is ordinary narrative, and is
+the control.
 
 ## Running it
 
 ```
 pip install spacy && python3 -m spacy download en_core_web_sm
 python3 worddumb_approx.py ch42.txt --json worddumb_ch42.json
-python3 compare.py --worddumb worddumb_ch42.json --summa summa_ch42.json
+python3 compare.py     --worddumb worddumb_ch42.json --summa summa_ch42.json
+python3 side_by_side.py --worddumb worddumb_ch42.json --summa summa_ch42.json
 ```
+
+`compare.py` measures which spans each tool selects. `side_by_side.py` measures
+what each one says about the spans they both select — add `--offline` to skip the
+Wikipedia and kaikki fetches and fall back to article titles.
 
 ## What each side is
 
@@ -32,21 +38,29 @@ the deployed Worker (no API key in the build container).
 
 ## Result
 
-| | count | words per annotation |
+| | words | WordDumb | Summa | ratio |
+|---|---|---|---|---|
+| ch. 42 | 3,651 | 449 (57 X-Ray + 392 Word Wise) | 39 | 12x |
+| ch. 26 | 1,221 | 148 (14 X-Ray + 134 Word Wise) | 13 | 11x |
+| total | 4,872 | 597 | 52 | **11.5x** |
+
+Strict span overlap — the whole anchor is itself an X-Ray entity or a Word Wise
+lemma — leaves 28/52 (54%) that WordDumb's selection cannot reach. By type:
+
+| type | unique to Summa | |
 |---|---|---|
-| WordDumb | 449 (57 X-Ray + 392 Word Wise) | 8 |
-| Summa | 39 | 94 |
+| philology | 12/13 | 92% |
+| interpretation | 2/2 | 100% |
+| context | 10/26 | 38% |
+| allusion | 4/11 | 36% |
 
-Summa annotates **12x less** on the same text.
+Allusions in this prose are proper nouns, and NER catches proper nouns — so
+`allusion` is the type WordDumb covers *best*, not worst. `philology` is where it
+structurally cannot follow. On the control chapter its X-Ray found only 14
+entities and its output collapsed into a dictionary, while Summa still found 13
+things: uniqueness rises on plain prose (69%) rather than falling (49%).
 
-Span overlap, measured two ways:
-
-- **Loose** (any word in the anchor appears in WordDumb's output): 30/39 covered.
-- **Strict** (the whole anchor is itself an entity or glossed lemma): 20/39 covered,
-  19 unique to Summa.
-
-By type, strict, unique to Summa: philology 8, context 6, allusion 4,
-interpretation 1.
+Positioning consequences: `docs/calibre-plugin-scope.md`.
 
 ## The caveat that matters
 

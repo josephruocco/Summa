@@ -151,4 +151,10 @@ def main():
 
 
 if __name__ == "__main__":
+    # Don't traceback when piped into head/less.
+    try:
+        import signal
+        signal.signal(signal.SIGPIPE, signal.SIG_DFL)
+    except (ImportError, AttributeError, ValueError):
+        pass
     main()

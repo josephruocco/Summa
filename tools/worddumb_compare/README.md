@@ -69,3 +69,43 @@ Coverage means WordDumb selects the same **span**, not that it produces the same
 king; Summa says why Melville reached for him. Neither script measures that, and
 it is the whole differentiation. A reader-facing comparison of note *content* on
 the ~20 shared anchors is the missing experiment.
+
+## The note comparison (partial)
+
+`side_by_side.py` answers the question the selection metrics cannot: on the
+anchors *both* tools select, is WordDumb's note actually different from Summa's?
+
+7 of the 20 shared ch. 42 anchors have been recovered so far, in
+`worddumb_notes_ch42.json`. They were deliberately chosen to include anchors
+where WordDumb was expected to win, not only ones favouring Summa.
+
+| anchor | type | better |
+|---|---|---|
+| Xerxes | allusion | Summa |
+| Great Jove | allusion | Summa |
+| Coleridge | allusion | Summa |
+| Whitsuntide | context | Summa |
+| Froissart | allusion | tie |
+| ermine | context | tie |
+| Alleghanies | context | **WordDumb** |
+
+The pattern is sharper than "Summa writes better notes":
+
+**WordDumb wins where the reader's question is "what is this thing?" and loses
+where the question is "why is this word here?"**
+
+"Alleghanies" is used referentially — it is a mountain range, and an encyclopedia
+lead naming its location and extent is a better note than Summa's. But "Great
+Jove" appears in a sentence about a *snow-white bull*, and Wikipedia's lead for
+Jupiter never mentions the bull. "Coleridge" is named because of the albatross,
+and the lead never mentions the Ancient Mariner. "Whitsuntide" is in a chapter
+about whiteness because *Whit* means white, and the lead never says so.
+
+Encyclopedia lookup answers the wrong question whenever a name is used
+allusively rather than referentially. That is the difference, and it is visible
+to any reader in a single screenshot.
+
+Recovered via web search against en.wikipedia.org / en.wiktionary.org, because
+direct fetches are blocked from the container this was run in. Re-run
+`side_by_side.py` without `--offline` on a networked machine to replace the cache
+with REST-API text and to fill in the other 13 anchors.

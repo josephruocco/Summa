@@ -106,10 +106,18 @@ def main():
     ap.add_argument("--summa", type=Path, required=True)
     ap.add_argument("--offline", action="store_true",
                     help="skip network, use repo ground-truth article titles")
+    ap.add_argument("--cache", type=Path,
+                    help="JSON of already-recovered WordDumb note text "
+                         "({xray:{anchor:lead}, wordwise:{lemma:sense}}); used "
+                         "in preference to fetching, and works offline")
     args = ap.parse_args()
 
     wd = json.loads(args.worddumb.read_text())
     su = json.loads(args.summa.read_text())
+
+    cache = json.loads(args.cache.read_text()) if args.cache else {}
+    cx = {norm(k): v for k, v in cache.get("xray", {}).items()}
+    cw = {norm(k): v for k, v in cache.get("wordwise", {}).items()}
 
     ents = {norm(e["text"]): e["text"] for e in wd["xray"]}
     ww = {norm(e["lemma"]) for e in wd["word_wise"]}
@@ -134,7 +142,12 @@ def main():
     for a, src, key in shared:
         print()
         print(f"ANCHOR  {a['anchor']}   [{a['type']}]")
-        if src == "xray":
+        n = norm(a["anchor"])
+        if src == "xray" and n in cx:
+            wdnote = f"(X-Ray) {cx[n]}"
+        elif src == "wordwise" and n in cw:
+            wdnote = f"(Word Wise) {cw[n]}"
+        elif src == "xray":
             if args.offline:
                 wdnote = f"(X-Ray) -> Wikipedia article: {gt.get(norm(a['anchor']), key)}"
             else:

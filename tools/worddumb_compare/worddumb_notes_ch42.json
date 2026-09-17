@@ -1,0 +1,15 @@
+{
+  "_provenance": "The note text WordDumb would actually print for these anchors. Direct fetches to en.wikipedia.org and kaikki.org are blocked from the Claude Code container, so these leads were recovered via web search against en.wikipedia.org / en.wiktionary.org on 2026-09-17. They read as genuine article leads but were not fetched from the REST API, so treat them as high- but not perfect-fidelity. Re-run side_by_side.py without --offline on a machine with network access to replace this file.",
+  "_partial": "7 of the 20 shared ch.42 anchors. Chosen to include anchors where WordDumb was expected to win (Allegheny Mountains, ermine), not only ones favouring Summa.",
+  "xray": {
+    "Xerxes": "Xerxes I (commonly known as Xerxes the Great; c. 518 BC – 465 BC) was a Persian ruler who reigned as the fourth King of Kings of the Achaemenid Empire, reigning from 486 BC until his assassination in 465 BC.",
+    "Froissart": "Jean Froissart (c. 1337 – c. 1405) was a French-speaking medieval author and court historian from the Low Countries who wrote several works, including Chronicles and Meliador, a long Arthurian romance, and a large body of poetry.",
+    "Great Jove": "In ancient Roman religion and mythology, Jupiter, also known as Jove, is the god of the sky and thunder, and king of the gods.",
+    "Coleridge": "Samuel Taylor Coleridge (21 October 1772 – 25 July 1834) was an English poet, literary critic, philosopher, and theologian who was a founder of the Romantic Movement in England and a member of the Lake Poets with his friend William Wordsworth.",
+    "Whitsuntide": "Whitsun (also Whitsunday or Whit Sunday) is the name used in Britain and among Anglicans and Methodists in other countries, for the Christian holy day of Pentecost.",
+    "Alleghanies": "The Allegheny Mountains are a mountain range situated in the eastern United States. A sub-range of the much vaster Appalachian Mountains, they extend roughly 300 miles along a northeast-southwest orientation from north-central Pennsylvania southwestward, through western Maryland and eastern West Virginia."
+  },
+  "wordwise": {
+    "ermine": "A weasel found in northern latitudes (Mustela erminea in Eurasia, Alaska, and the Arctic) whose dark brown fur turns white in winter, apart from the black spots. Also: the fur of this animal, used as a heraldic tincture."
+  }
+}
